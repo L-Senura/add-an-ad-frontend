@@ -1,1 +1,52 @@
 @import "tailwindcss";
+
+@theme {
+  --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  
+  /* Requested Theme Color Palette */
+  --color-brand-light: #EAEAEA;
+  --color-brand-accent: #FF2E63;
+  --color-brand-dark: #252A34;
+  --color-brand-cyan: #08D9D6;
+
+  /* Semantic Brand Mappings */
+  --color-brand-primary: #08D9D6;
+  --color-brand-primary-dark: #06b5b2;
+  --color-brand-primary-light: #44ece9;
+  
+  --color-brand-blush: #FF2E63;
+  --color-brand-blush-soft: #fff0f3;
+  
+  --color-brand-terracotta: #FF2E63;
+  --color-brand-terracotta-hover: #e01a4f;
+  
+  --color-brand-lavender: #08D9D6;
+  --color-brand-lavender-soft: #eafaf9;
+  
+  --color-brand-card-bg: #FFFFFF;
+  
+  --color-brand-muted: #6b7688;
+  --color-brand-muted-dark: #3f4756;
+}
+
+:root {
+  font-family: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  background-color: #EAEAEA;
+  color: #252A34;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background-color: #EAEAEA;
+  color: #252A34;
+}
+
+/* Custom smooth transition & scroll styling */
+* {
+  box-sizing: border-box;
+}
+
+input:focus, textarea:focus, select:focus {
+  outline: none;
+}
