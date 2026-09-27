@@ -14,7 +14,6 @@ import { loginAdmin, saveAuthSession, getAdminAllocatedDetails } from './api';
 
 export default function AdminLogin({
   onNavigateToRegister,
-  onNavigateToClientLogin,
   onNavigateToApprovals,
   onLoginSuccess,
 }) {
@@ -51,10 +50,11 @@ export default function AdminLogin({
     setIsLoading(true);
     try {
       const response = await loginAdmin(credentials);
-      saveAuthSession(response);
-      setLoggedInAdmin(response);
+      const sessionData = { ...response, role: response.role || 'ADMIN' };
+      saveAuthSession(sessionData);
+      setLoggedInAdmin(sessionData);
       if (onLoginSuccess) {
-        onLoginSuccess(response);
+        onLoginSuccess(sessionData);
       }
 
       // Automatically fetch allocated role details
@@ -288,17 +288,6 @@ export default function AdminLogin({
             style={{ color: '#FF2E63' }}
           >
             Register As Admin
-          </button>
-        </p>
-        <p>
-          Are you an advertising client?{' '}
-          <button
-            type="button"
-            onClick={() => onNavigateToClientLogin && onNavigateToClientLogin()}
-            className="font-semibold underline hover:opacity-80 transition-opacity"
-            style={{ color: '#08D9D6' }}
-          >
-            Switch to Client Login
           </button>
         </p>
       </div>

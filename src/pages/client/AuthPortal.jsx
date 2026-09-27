@@ -20,6 +20,7 @@ export default function AuthPortal({
   initialRole = 'client',
   initialMode = 'login',
   onClientLoginSuccess,
+  onAdminLoginSuccess,
   onNavigateToApprovals,
 }) {
   const location = useLocation();
@@ -40,10 +41,6 @@ export default function AuthPortal({
 
   const [activeSession, setActiveSession] = useState(() => getStoredAuthSession());
 
-  const handleRoleChange = (role) => {
-    navigate(`/api/${role}/${activeMode}`, { replace: true });
-  };
-
   const handleModeChange = (mode) => {
     navigate(`/api/${activeRole}/${mode}`, { replace: true });
   };
@@ -56,7 +53,7 @@ export default function AuthPortal({
   // Dynamic titles based on role and mode
   const getTitle = () => {
     if (activeRole === 'client') {
-      return activeMode === 'register' ? 'Register Your Agency' : 'Login';
+      return activeMode === 'register' ? 'Register Your Agency' : 'Client Login';
     } else {
       return activeMode === 'register' ? 'Register As Admin' : 'Admin Login';
     }
@@ -80,7 +77,6 @@ export default function AuthPortal({
       subtitle={getSubtitle()}
       activeRole={activeRole}
       activeMode={activeMode}
-      onRoleChange={handleRoleChange}
       onModeChange={handleModeChange}
     >
       {/* Active session bar if user is currently authenticated */}
@@ -122,18 +118,12 @@ export default function AuthPortal({
       {activeRole === 'client' && activeMode === 'register' && (
         <ClientRegister
           onNavigateToLogin={() => handleModeChange('login')}
-          onNavigateToAdminRegister={() => {
-            navigate('/api/admin/register', { replace: true });
-          }}
         />
       )}
 
       {activeRole === 'client' && activeMode === 'login' && (
         <ClientLogin
           onNavigateToRegister={() => handleModeChange('register')}
-          onNavigateToAdminLogin={() => {
-            navigate('/api/admin/login', { replace: true });
-          }}
           onLoginSuccess={(user) => {
             setActiveSession(user);
             if (onClientLoginSuccess) {
@@ -146,20 +136,19 @@ export default function AuthPortal({
       {activeRole === 'admin' && activeMode === 'register' && (
         <AdminRegister
           onNavigateToLogin={() => handleModeChange('login')}
-          onNavigateToClientRegister={() => {
-            navigate('/api/client/register', { replace: true });
-          }}
         />
       )}
 
       {activeRole === 'admin' && activeMode === 'login' && (
         <AdminLogin
           onNavigateToRegister={() => handleModeChange('register')}
-          onNavigateToClientLogin={() => {
-            navigate('/api/client/login', { replace: true });
-          }}
           onNavigateToApprovals={onNavigateToApprovals}
-          onLoginSuccess={(user) => setActiveSession(user)}
+          onLoginSuccess={(user) => {
+            setActiveSession(user);
+            if (onAdminLoginSuccess) {
+              onAdminLoginSuccess(user);
+            }
+          }}
         />
       )}
     </AuthLayout>

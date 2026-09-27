@@ -15,7 +15,6 @@ import { loginClient, saveAuthSession } from './api';
 
 export default function ClientLogin({
   onNavigateToRegister,
-  onNavigateToAdminLogin,
   onLoginSuccess,
 }) {
   const [credentials, setCredentials] = useState({
@@ -53,10 +52,11 @@ export default function ClientLogin({
     setIsLoading(true);
     try {
       const response = await loginClient(credentials);
-      saveAuthSession(response);
-      setLoggedInUser(response);
+      const sessionData = { ...response, role: response.role || 'CLIENT' };
+      saveAuthSession(sessionData);
+      setLoggedInUser(sessionData);
       if (onLoginSuccess) {
-        onLoginSuccess(response);
+        onLoginSuccess(sessionData);
       }
     } catch (err) {
       const message = err.message || 'Invalid email or password.';
@@ -285,17 +285,6 @@ export default function ClientLogin({
             style={{ color: '#08D9D6' }}
           >
             Register Your Agency
-          </button>
-        </p>
-        <p>
-          Agency internal staff?{' '}
-          <button
-            type="button"
-            onClick={() => onNavigateToAdminLogin && onNavigateToAdminLogin()}
-            className="font-semibold underline hover:opacity-80 transition-opacity"
-            style={{ color: '#FF2E63' }}
-          >
-            Switch to Admin Login
           </button>
         </p>
       </div>

@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import { registerClient } from './api';
 
-export default function ClientRegister({ onNavigateToLogin, onNavigateToAdminRegister }) {
+export default function ClientRegister({ onNavigateToLogin }) {
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
@@ -381,17 +381,6 @@ export default function ClientRegister({ onNavigateToLogin, onNavigateToAdminReg
             style={{ color: '#08D9D6' }}
           >
             Log In here
-          </button>
-        </p>
-        <p>
-          Need staff administration access?{' '}
-          <button
-            type="button"
-            onClick={() => onNavigateToAdminRegister && onNavigateToAdminRegister()}
-            className="font-semibold underline hover:opacity-80 transition-opacity"
-            style={{ color: '#FF2E63' }}
-          >
-            Register As Admin
           </button>
         </p>
       </div>

@@ -10,7 +10,6 @@ export default function AuthLayout({
   children,
   activeRole = 'client', // 'client' | 'admin'
   activeMode = 'login',  // 'login' | 'register'
-  onRoleChange,
   onModeChange,
 }) {
   return (
@@ -46,51 +45,14 @@ export default function AuthLayout({
             <span
               className="ml-2 text-xs font-semibold px-2 py-0.5 rounded-full uppercase tracking-wider"
               style={{
-                backgroundColor: 'rgba(8, 217, 214, 0.18)',
-                color: '#252A34',
+                backgroundColor: activeRole === 'admin' ? 'rgba(255, 46, 99, 0.18)' : 'rgba(8, 217, 214, 0.18)',
+                color: activeRole === 'admin' ? '#FF2E63' : '#252A34',
               }}
             >
-              Advertising Agency
+              {activeRole === 'admin' ? 'Administration Portal' : 'Advertising Agency'}
             </span>
           </div>
         </div>
-
-        {/* Portal Role Switcher */}
-        {onRoleChange && (
-          <div
-            className="inline-flex p-1 rounded-2xl shadow-inner border border-gray-300"
-            style={{ backgroundColor: '#FFFFFF' }}
-          >
-            <button
-              type="button"
-              onClick={() => onRoleChange('client')}
-              className={`px-4 py-1.5 rounded-xl text-xs sm:text-sm font-semibold transition-all duration-200 flex items-center gap-1.5 ${
-                activeRole === 'client'
-                  ? 'bg-[#252A34] text-[#08D9D6] shadow-sm'
-                  : 'text-gray-600 hover:text-gray-900'
-              }`}
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-              </svg>
-              Client / Agency
-            </button>
-            <button
-              type="button"
-              onClick={() => onRoleChange('admin')}
-              className={`px-4 py-1.5 rounded-xl text-xs sm:text-sm font-semibold transition-all duration-200 flex items-center gap-1.5 ${
-                activeRole === 'admin'
-                  ? 'bg-[#FF2E63] text-white shadow-sm'
-                  : 'text-gray-600 hover:text-gray-900'
-              }`}
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-              </svg>
-              Admin Portal
-            </button>
-          </div>
-        )}
       </header>
 
       {/* Main Form Center Area */}
