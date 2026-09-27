@@ -38,6 +38,7 @@ import {
   DEFAULT_CAMPAIGN_TYPES,
 } from '../campaign/campaignApi';
 import ClientChatInterface from '../communication/clientChatInterface';
+import ReviewInterface from '../communication/reviewInterface';
 import ClientInvoicesSection from '../finance/ClientInvoicesSection';
 import ClientMarketingSection from '../marketing/ClientMarketingSection';
 import ClientTaskSubmissionSection from '../operations/ClientTaskSubmissionSection';
@@ -973,6 +974,16 @@ export default function ClientHome({ onPostAdvertisement, onLogout }) {
           <ClientChatInterface
             clientId={client?.clientID || 1}
             clientName={client?.companyName || client?.firstName || 'Your Agency'}
+          />
+        </div>
+
+        {/* Client Agency Reviews & Administrator Feedback Section */}
+        <div className="mb-10">
+          <ReviewInterface
+            clientId={client?.clientID || 1}
+            clientName={client?.companyName || client?.firstName || 'Your Agency'}
+            reviewerName={`${client?.firstName || ''} ${client?.lastName || ''}`.trim() || client?.companyName}
+            campaigns={campaigns}
           />
         </div>
       </main>

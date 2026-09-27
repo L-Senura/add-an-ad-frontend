@@ -38,13 +38,17 @@ export const BACKEND_API_ROUTES = {
   OPERATIONS: '/api/operations',
   CLIENT_TASKS: '/api/client_tasks',
   COORDINATOR_TASKS: '/api/coordinator_tasks',
-  EMPLOYEE_TASKS: '/api/employee_tasks',
+  // 7. Reviews Controller (/api/reviews)
+  REVIEWS: '/api/reviews',
+  CLIENT_REVIEWS: '/api/reviews/client-to-admin',
+  ADMIN_REVIEWS: '/api/reviews/admin/all',
 };
 
 // Re-export all sub-module APIs for direct access
 export * from '../pages/client/api';
 export * from '../pages/campaign/campaignApi';
 export * from '../pages/communication/communicationApi';
+export * from '../pages/communication/reviewApi';
 export * from '../pages/finance/financeApi';
 export * from '../pages/marketing/marketingApi';
 export * from '../pages/operations/operationsApi';

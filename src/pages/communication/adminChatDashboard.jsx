@@ -14,6 +14,7 @@ import {
   Shield,
   ArrowLeft,
   RefreshCw,
+  Star,
 } from 'lucide-react';
 import {
   sendAdminMessageToClient,
@@ -23,6 +24,7 @@ import {
   getFullConversationThread,
 } from './communicationApi';
 import { getAllClients, getStoredAuthSession } from '../client/api';
+import AdminReviewDesk from './AdminReviewDesk';
 
 // Sample client list for offline/demo reliability
 const DEMO_CHAT_CLIENTS = [
@@ -70,6 +72,7 @@ export default function AdminChatDashboard({ onBackToDashboard }) {
   const [replyTargetMessage, setReplyTargetMessage] = useState(null); // client msg being directly replied to
   const [editingMessageId, setEditingMessageId] = useState(null);
   const [editText, setEditText] = useState('');
+  const [activeView, setActiveView] = useState('chat'); // 'chat' | 'reviews'
 
   const messagesContainerRef = useRef(null);
   const isFirstLoadRef = useRef(true);
@@ -295,11 +298,44 @@ export default function AdminChatDashboard({ onBackToDashboard }) {
         )}
       </header>
 
-      {/* Main Two-Column Chat Dashboard */}
+      {/* View Switcher: Live Chat vs Client Reviews */}
+      <div className="max-w-6xl mx-auto mb-6 flex items-center justify-between">
+        <div className="inline-flex p-1.5 rounded-2xl bg-white border border-gray-200 shadow-xs gap-1.5">
+          <button
+            type="button"
+            onClick={() => setActiveView('chat')}
+            className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all flex items-center gap-2 cursor-pointer ${
+              activeView === 'chat'
+                ? 'bg-[#252A34] text-[#08D9D6] shadow-xs'
+                : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            <MessageSquare className="w-4 h-4" />
+            Live Client Messaging
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveView('reviews')}
+            className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all flex items-center gap-2 cursor-pointer ${
+              activeView === 'reviews'
+                ? 'bg-[#FF2E63] text-white shadow-xs'
+                : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            <Star className="w-4 h-4 fill-amber-400 text-amber-400" />
+            Client Reviews & Ratings
+          </button>
+        </div>
+      </div>
+
+      {/* Main Content Area */}
       <main className="max-w-6xl mx-auto">
-        <div
-          className="rounded-[32px] bg-white border border-gray-200 shadow-xl overflow-hidden grid grid-cols-1 lg:grid-cols-12 min-h-[640px]"
-        >
+        {activeView === 'reviews' ? (
+          <AdminReviewDesk adminSession={adminSession} />
+        ) : (
+          <div
+            className="rounded-[32px] bg-white border border-gray-200 shadow-xl overflow-hidden grid grid-cols-1 lg:grid-cols-12 min-h-[640px]"
+          >
           {/* LEFT SIDEBAR: Client Conversation Queue (4 cols) */}
           <div
             className="lg:col-span-4 border-r border-gray-200 flex flex-col bg-white"
@@ -602,6 +638,7 @@ export default function AdminChatDashboard({ onBackToDashboard }) {
             </form>
           </div>
         </div>
+        )}
       </main>
 
       {/* Footer */}

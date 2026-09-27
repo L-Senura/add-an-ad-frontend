@@ -5,9 +5,10 @@
  */
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
+const STORAGE_KEY = 'add_an_ad_finance_invoices';
 
-// Fallback demo invoices for offline / local preview testing
-let demoInvoices = [
+// Seed invoices if none saved in localStorage yet
+const INITIAL_DEMO_INVOICES = [
   {
     invoiceId: 1001,
     clientId: 1,
@@ -63,13 +64,49 @@ let demoInvoices = [
     clientDescription: 'Charges for campaign: OmniVanguard Video Hype (YouTube, Instagram)',
     createdAt: new Date(Date.now() - 1000 * 60 * 60 * 2).toISOString(),
   },
+  {
+    invoiceId: 1006,
+    clientId: 101,
+    campaignId: 3,
+    chargedCategory: 'Platform Charges',
+    categoryPrice: 500.0,
+    paymentStatus: 'PENDING',
+    payedDatetime: null,
+    clientDescription: 'Web agency platform service fee for campaign #3',
+    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 2).toISOString(),
+  },
 ];
+
+function getStoredInvoices() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed;
+      }
+    }
+  } catch (e) {
+    console.warn('Failed to parse stored invoices from localStorage:', e);
+  }
+  return [...INITIAL_DEMO_INVOICES];
+}
+
+function saveStoredInvoices(list) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+  } catch (e) {
+    console.warn('Failed to save invoices to localStorage:', e);
+  }
+}
+
+let demoInvoices = getStoredInvoices();
 
 async function request(endpoint, options = {}) {
   const url = `${API_BASE_URL}${endpoint}`;
   const defaultHeaders = {
     'Content-Type': 'application/json',
-    'Accept': 'application/json',
+    Accept: 'application/json',
   };
 
   const config = {
@@ -98,7 +135,8 @@ async function request(endpoint, options = {}) {
     }
 
     if (!response.ok) {
-      const errorMessage = data?.message || data?.error || `Request failed with status ${response.status}`;
+      const errorMessage =
+        data?.message || data?.error || `Request failed with status ${response.status}`;
       const error = new Error(errorMessage);
       error.status = response.status;
       error.data = data;
@@ -108,7 +146,9 @@ async function request(endpoint, options = {}) {
     return data;
   } catch (err) {
     if (err.name === 'TypeError' && err.message.includes('Failed to fetch')) {
-      const connectionError = new Error('Backend server not connected; running in local finance storage mode.');
+      const connectionError = new Error(
+        'Backend server not connected; running in local finance storage mode.'
+      );
       connectionError.isNetworkError = true;
       throw connectionError;
     }
@@ -117,19 +157,24 @@ async function request(endpoint, options = {}) {
 }
 
 /**
- * Generate platform and campaign charges invoices for an existing campaign
+ * Automatically generate platform charges and campaign charges for an existing campaign
  * POST /api/finance/invoice/generate/{campaignId}?platformCharge={platformCharge}
  */
 export async function generateCampaignInvoices(campaignId, platformCharge = 500.0, campaignDetails = null) {
+  const pCharge = Number(platformCharge != null ? platformCharge : 500.0);
   try {
-    return await request(`/api/finance/invoice/generate/${campaignId}?platformCharge=${platformCharge}`, {
-      method: 'POST',
-    });
+    return await request(
+      `/api/finance/invoice/generate/${campaignId}?platformCharge=${pCharge}`,
+      {
+        method: 'POST',
+      }
+    );
   } catch {
-    // Offline fallback generator
-    const campPrice = campaignDetails?.campaignPrices || 2000.0;
-    const clientRefId = campaignDetails?.clientID || 1;
+    // Offline / demo fallback generator
+    const campPrice = Number(campaignDetails?.campaignPrices || 2000.0);
+    const clientRefId = Number(campaignDetails?.clientID || 1);
     const campName = campaignDetails?.campaignName || `Campaign #${campaignId}`;
+    const channels = campaignDetails?.selectedChannels || 'Standard ad placement';
 
     const campInvoice = {
       invoiceId: Date.now(),
@@ -139,7 +184,7 @@ export async function generateCampaignInvoices(campaignId, platformCharge = 500.
       categoryPrice: campPrice,
       paymentStatus: 'PENDING',
       payedDatetime: null,
-      clientDescription: `Charges for campaign: ${campName}`,
+      clientDescription: `Charges for campaign: ${campName} (${channels})`,
       createdAt: new Date().toISOString(),
     };
 
@@ -148,7 +193,7 @@ export async function generateCampaignInvoices(campaignId, platformCharge = 500.
       clientId: clientRefId,
       campaignId: Number(campaignId),
       chargedCategory: 'Platform Charges',
-      categoryPrice: Number(platformCharge),
+      categoryPrice: pCharge,
       paymentStatus: 'PENDING',
       payedDatetime: null,
       clientDescription: `Web agency platform service fee for campaign #${campaignId}`,
@@ -157,13 +202,14 @@ export async function generateCampaignInvoices(campaignId, platformCharge = 500.
 
     demoInvoices.unshift(platInvoice);
     demoInvoices.unshift(campInvoice);
+    saveStoredInvoices(demoInvoices);
 
     return {
       success: true,
       message: `Invoices generated successfully for campaign #${campaignId}`,
       campaignChargesInvoice: campInvoice,
       platformChargesInvoice: platInvoice,
-      totalAmount: campPrice + Number(platformCharge),
+      totalAmount: campPrice + pCharge,
     };
   }
 }
@@ -173,30 +219,40 @@ export async function generateCampaignInvoices(campaignId, platformCharge = 500.
  * POST /api/finance/invoice/create
  */
 export async function createInvoice(invoiceData) {
+  const payload = {
+    clientId: Number(invoiceData.clientId),
+    campaignId: invoiceData.campaignId ? Number(invoiceData.campaignId) : null,
+    chargedCategory: invoiceData.chargedCategory || 'Platform Charges',
+    categoryPrice: Number(invoiceData.categoryPrice),
+    paymentStatus: invoiceData.paymentStatus || 'PENDING',
+    clientDescription: invoiceData.clientDescription || '',
+  };
+
   try {
     return await request('/api/finance/invoice/create', {
       method: 'POST',
-      body: JSON.stringify(invoiceData),
+      body: JSON.stringify(payload),
     });
   } catch {
     const newInv = {
       invoiceId: Date.now(),
-      clientId: Number(invoiceData.clientId),
-      campaignId: invoiceData.campaignId ? Number(invoiceData.campaignId) : null,
-      chargedCategory: invoiceData.chargedCategory,
-      categoryPrice: Number(invoiceData.categoryPrice),
-      paymentStatus: invoiceData.paymentStatus || 'PENDING',
-      payedDatetime: invoiceData.paymentStatus === 'PAID' ? new Date().toISOString() : null,
-      clientDescription: invoiceData.clientDescription || 'Agency invoice',
+      clientId: payload.clientId,
+      campaignId: payload.campaignId,
+      chargedCategory: payload.chargedCategory,
+      categoryPrice: payload.categoryPrice,
+      paymentStatus: payload.paymentStatus,
+      payedDatetime: payload.paymentStatus === 'PAID' ? new Date().toISOString() : null,
+      clientDescription: payload.clientDescription || 'Agency invoice entry',
       createdAt: new Date().toISOString(),
     };
     demoInvoices.unshift(newInv);
+    saveStoredInvoices(demoInvoices);
     return newInv;
   }
 }
 
 /**
- * Mark an invoice as paid
+ * Mark an invoice as paid, recording the payment datetime and client description/remarks
  * PUT /api/finance/invoice/{invoiceId}/pay
  */
 export async function recordInvoicePayment(invoiceId, paymentRemarks = '') {
@@ -210,7 +266,10 @@ export async function recordInvoicePayment(invoiceId, paymentRemarks = '') {
     if (target) {
       target.paymentStatus = 'PAID';
       target.payedDatetime = new Date().toISOString();
-      if (paymentRemarks) target.clientDescription = paymentRemarks;
+      if (paymentRemarks) {
+        target.clientDescription = paymentRemarks;
+      }
+      saveStoredInvoices(demoInvoices);
     }
     return {
       success: true,
@@ -221,21 +280,91 @@ export async function recordInvoicePayment(invoiceId, paymentRemarks = '') {
 }
 
 /**
+ * Update an existing invoice (PUT /api/finance/invoice/{invoiceId} or /pay)
+ * Provides comprehensive CRUD update support with fallback
+ */
+export async function updateInvoice(invoiceId, updatedFields) {
+  const payload = {
+    ...updatedFields,
+    clientId: updatedFields.clientId ? Number(updatedFields.clientId) : undefined,
+    campaignId: updatedFields.campaignId ? Number(updatedFields.campaignId) : null,
+    categoryPrice:
+      updatedFields.categoryPrice != null ? Number(updatedFields.categoryPrice) : undefined,
+  };
+
+  try {
+    // If updating payment specifically, route to /pay endpoint
+    if (payload.paymentStatus === 'PAID' && updatedFields.clientDescription) {
+      await request(`/api/finance/invoice/${invoiceId}/pay`, {
+        method: 'PUT',
+        body: JSON.stringify({ client_description: updatedFields.clientDescription }),
+      }).catch(() => null);
+    }
+
+    return await request(`/api/finance/invoice/${invoiceId}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    });
+  } catch {
+    const idx = demoInvoices.findIndex((i) => i.invoiceId === Number(invoiceId));
+    if (idx !== -1) {
+      demoInvoices[idx] = {
+        ...demoInvoices[idx],
+        ...payload,
+        payedDatetime:
+          payload.paymentStatus === 'PAID' && !demoInvoices[idx].payedDatetime
+            ? new Date().toISOString()
+            : demoInvoices[idx].payedDatetime,
+      };
+      saveStoredInvoices(demoInvoices);
+      return demoInvoices[idx];
+    }
+    return { invoiceId: Number(invoiceId), ...payload };
+  }
+}
+
+/**
+ * Delete an invoice entry (DELETE /api/finance/invoice/{invoiceId})
+ * Provides comprehensive CRUD delete support with fallback
+ */
+export async function deleteInvoice(invoiceId) {
+  try {
+    return await request(`/api/finance/invoice/${invoiceId}`, {
+      method: 'DELETE',
+    });
+  } catch {
+    demoInvoices = demoInvoices.filter((i) => i.invoiceId !== Number(invoiceId));
+    saveStoredInvoices(demoInvoices);
+    return {
+      success: true,
+      message: `Invoice #${invoiceId} removed successfully.`,
+    };
+  }
+}
+
+/**
  * Get all invoices with optional filter by category or status
  * GET /api/finance/invoices?category={category}&status={status}
  */
 export async function getAllInvoices(category, status) {
   const params = new URLSearchParams();
-  if (category) params.append('category', category);
-  if (status) params.append('status', status);
+  if (category && category !== 'ALL') params.append('category', category.trim());
+  if (status && status !== 'ALL') params.append('status', status.trim().toUpperCase());
   const query = params.toString() ? `?${params.toString()}` : '';
 
   try {
-    return await request(`/api/finance/invoices${query}`);
+    const data = await request(`/api/finance/invoices${query}`);
+    return Array.isArray(data) ? data : [];
   } catch {
     let list = [...demoInvoices];
-    if (category) list = list.filter((i) => i.chargedCategory === category);
-    if (status) list = list.filter((i) => i.paymentStatus?.toUpperCase() === status.toUpperCase());
+    if (category && category !== 'ALL') {
+      list = list.filter((i) => i.chargedCategory === category);
+    }
+    if (status && status !== 'ALL') {
+      list = list.filter(
+        (i) => i.paymentStatus?.toUpperCase() === status.toUpperCase()
+      );
+    }
     return list;
   }
 }
@@ -246,7 +375,8 @@ export async function getAllInvoices(category, status) {
  */
 export async function getInvoicesByClientId(clientId) {
   try {
-    return await request(`/api/finance/invoices/client/${clientId}`);
+    const data = await request(`/api/finance/invoices/client/${clientId}`);
+    return Array.isArray(data) ? data : [];
   } catch {
     return demoInvoices.filter((i) => String(i.clientId) === String(clientId));
   }
@@ -258,14 +388,15 @@ export async function getInvoicesByClientId(clientId) {
  */
 export async function getInvoicesByCampaignId(campaignId) {
   try {
-    return await request(`/api/finance/invoices/campaign/${campaignId}`);
+    const data = await request(`/api/finance/invoices/campaign/${campaignId}`);
+    return Array.isArray(data) ? data : [];
   } catch {
     return demoInvoices.filter((i) => String(i.campaignId) === String(campaignId));
   }
 }
 
 /**
- * Get aggregated financial report
+ * Generate an aggregated Financial Report
  * GET /api/finance/report
  */
 export async function getFinanceReport() {
@@ -284,9 +415,14 @@ export async function getFinanceReport() {
     all.forEach((inv) => {
       const price = inv.categoryPrice || 0;
       totalBilled += price;
-      if (inv.chargedCategory === 'Platform Charges') totalPlatform += price;
-      if (inv.chargedCategory === 'Campaign Charges') totalCampaign += price;
-      if (inv.paymentStatus === 'PAID') {
+
+      if (inv.chargedCategory?.toLowerCase() === 'platform charges') {
+        totalPlatform += price;
+      } else if (inv.chargedCategory?.toLowerCase() === 'campaign charges') {
+        totalCampaign += price;
+      }
+
+      if (inv.paymentStatus?.toUpperCase() === 'PAID') {
         totalCollected += price;
         paidCount++;
       } else {
@@ -304,7 +440,6 @@ export async function getFinanceReport() {
       totalCampaignCharges: totalCampaign,
       paidInvoicesCount: paidCount,
       pendingInvoicesCount: pendingCount,
-      reportGeneratedTime: new Date().toISOString(),
       invoiceList: all,
     };
   }
