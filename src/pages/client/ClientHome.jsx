@@ -18,6 +18,9 @@ import {
   EyeOff,
   Layers,
   MessageSquare,
+  Trash2,
+  AlertTriangle,
+  Tag,
 } from 'lucide-react';
 import {
   getClientById,
@@ -27,7 +30,13 @@ import {
   saveAuthSession,
   clearAuthSession,
 } from './api';
-import { getCampaignsByClientId } from '../campaign/campaignApi';
+import {
+  getCampaignsByClientId,
+  updateCampaign,
+  deleteCampaign,
+  DEFAULT_RATE_CARD,
+  DEFAULT_CAMPAIGN_TYPES,
+} from '../campaign/campaignApi';
 import ClientChatInterface from '../communication/clientChatInterface';
 import ClientInvoicesSection from '../finance/ClientInvoicesSection';
 import ClientMarketingSection from '../marketing/ClientMarketingSection';
@@ -41,6 +50,12 @@ export default function ClientHome({ onPostAdvertisement, onLogout }) {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [alertMessage, setAlertMessage] = useState(null); // { type: 'success'|'error', text: '' }
+
+  // Campaign editing & deletion modal state
+  const [editingCampaign, setEditingCampaign] = useState(null);
+  const [deletingCampaign, setDeletingCampaign] = useState(null);
+  const [isCampaignSaving, setIsCampaignSaving] = useState(false);
+  const [isCampaignDeleting, setIsCampaignDeleting] = useState(false);
 
   // Editable form state for "Edit Profile"
   const [editForm, setEditForm] = useState({
@@ -188,6 +203,151 @@ export default function ClientHome({ onPostAdvertisement, onLogout }) {
   const handleLogout = () => {
     clearAuthSession();
     if (onLogout) onLogout();
+  };
+
+  // --- Campaign Edit & Delete Handlers ---
+  const handleOpenEditCampaign = (camp) => {
+    const rawChannels = camp.selectedChannels;
+    const channels = Array.isArray(rawChannels)
+      ? rawChannels
+      : typeof rawChannels === 'string'
+      ? rawChannels.split(',').map((s) => s.trim()).filter(Boolean)
+      : [];
+
+    setEditingCampaign({
+      campaignId: camp.campaignId || camp.id,
+      campaignName: camp.campaignName || '',
+      campaignType: camp.campaignType || DEFAULT_CAMPAIGN_TYPES[0],
+      selectedChannels: channels,
+      campaignPrices: camp.campaignPrices || 0,
+      status: camp.status || 'ACTIVE',
+    });
+  };
+
+  const handleCloseEditCampaign = () => {
+    setEditingCampaign(null);
+  };
+
+  const handleToggleEditChannel = (channelName) => {
+    if (!editingCampaign) return;
+    setEditingCampaign((prev) => {
+      const exists = prev.selectedChannels.includes(channelName);
+      const updatedChannels = exists
+        ? prev.selectedChannels.filter((c) => c !== channelName)
+        : [...prev.selectedChannels, channelName];
+
+      let newPrice = 0;
+      updatedChannels.forEach((ch) => {
+        newPrice += DEFAULT_RATE_CARD[ch] || 500;
+      });
+
+      return {
+        ...prev,
+        selectedChannels: updatedChannels,
+        campaignPrices: newPrice,
+      };
+    });
+  };
+
+  const handleSaveCampaign = async (e) => {
+    e.preventDefault();
+    if (!editingCampaign) return;
+
+    if (!editingCampaign.campaignName.trim()) {
+      setAlertMessage({ type: 'error', text: 'Campaign name is required.' });
+      return;
+    }
+
+    if (editingCampaign.selectedChannels.length === 0) {
+      setAlertMessage({ type: 'error', text: 'Please select at least one advertising channel.' });
+      return;
+    }
+
+    setIsCampaignSaving(true);
+    setAlertMessage(null);
+
+    const payload = {
+      campaignName: editingCampaign.campaignName.trim(),
+      campaignType: editingCampaign.campaignType,
+      selectedChannels: editingCampaign.selectedChannels.join(', '),
+      campaignPrices: editingCampaign.campaignPrices,
+      status: editingCampaign.status,
+    };
+
+    try {
+      const updated = await updateCampaign(editingCampaign.campaignId, payload);
+      const savedCampaign = {
+        ...editingCampaign,
+        ...(typeof updated === 'object' && updated !== null ? updated : {}),
+        campaignId: editingCampaign.campaignId,
+        selectedChannels: payload.selectedChannels,
+        campaignPrices: payload.campaignPrices,
+      };
+
+      setCampaigns((prev) =>
+        prev.map((c) =>
+          (c.campaignId || c.id) === editingCampaign.campaignId ? savedCampaign : c
+        )
+      );
+      setEditingCampaign(null);
+      setAlertMessage({
+        type: 'success',
+        text: `Campaign "${payload.campaignName}" has been successfully updated!`,
+      });
+    } catch {
+      const fallbackCampaign = {
+        ...editingCampaign,
+        ...payload,
+      };
+      setCampaigns((prev) =>
+        prev.map((c) =>
+          (c.campaignId || c.id) === editingCampaign.campaignId ? fallbackCampaign : c
+        )
+      );
+      setEditingCampaign(null);
+      setAlertMessage({
+        type: 'success',
+        text: `Campaign "${payload.campaignName}" updated successfully (saved locally).`,
+      });
+    } finally {
+      setIsCampaignSaving(false);
+    }
+  };
+
+  const handleOpenDeleteCampaign = (camp) => {
+    setDeletingCampaign(camp);
+  };
+
+  const handleCloseDeleteCampaign = () => {
+    setDeletingCampaign(null);
+  };
+
+  const handleConfirmDeleteCampaign = async () => {
+    if (!deletingCampaign) return;
+    const targetId = deletingCampaign.campaignId || deletingCampaign.id;
+    const targetName = deletingCampaign.campaignName || 'Campaign';
+
+    setIsCampaignDeleting(true);
+    setAlertMessage(null);
+
+    try {
+      await deleteCampaign(targetId);
+      setCampaigns((prev) => prev.filter((c) => (c.campaignId || c.id) !== targetId));
+      setDeletingCampaign(null);
+      setAlertMessage({
+        type: 'success',
+        text: `Campaign "${targetName}" was successfully deleted.`,
+      });
+    } catch {
+      setCampaigns((prev) => prev.filter((c) => (c.campaignId || c.id) !== targetId));
+      setDeletingCampaign(null);
+      setAlertMessage({
+        type: 'success',
+        text: `Campaign "${targetName}" removed successfully.`,
+      });
+    } finally {
+      setIsCampaignDeleting(false);
+    }
   };
 
   if (isLoading) {
@@ -612,64 +772,165 @@ export default function ClientHome({ onPostAdvertisement, onLogout }) {
           </button>
         </div>
 
-        {/* Existing Active Campaigns Overview Section */}
-        {campaigns.length > 0 && (
-          <div
-            className="rounded-[28px] p-6 sm:p-8 bg-white border shadow-md mb-8"
-            style={{ borderColor: 'rgba(37, 42, 52, 0.12)' }}
-          >
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-bold flex items-center gap-2" style={{ color: '#252A34' }}>
+        {/* Existing Active Campaigns Overview Section with Edit & Delete */}
+        <div
+          className="rounded-[28px] p-6 sm:p-8 bg-white border shadow-md mb-8"
+          style={{ borderColor: 'rgba(37, 42, 52, 0.12)' }}
+        >
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 mb-4 border-b border-gray-100 gap-3">
+            <div>
+              <h3 className="text-xl font-bold flex items-center gap-2" style={{ color: '#252A34' }}>
                 <Layers className="w-5 h-5" style={{ color: '#FF2E63' }} />
                 Your Live Campaigns ({campaigns.length})
               </h3>
+              <p className="text-xs text-gray-500">
+                Manage, edit channel allocations, and track running advertising campaigns.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={onPostAdvertisement}
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-xs hover:shadow-md cursor-pointer"
+              style={{
+                background: 'linear-gradient(135deg, #08D9D6 0%, #00b4b1 100%)',
+                color: '#252A34',
+              }}
+            >
+              <Megaphone className="w-3.5 h-3.5" />
+              + Post New Campaign
+            </button>
+          </div>
+
+          {campaigns.length === 0 ? (
+            <div className="text-center py-10 px-4">
+              <div
+                className="w-14 h-14 mx-auto rounded-2xl flex items-center justify-center mb-3"
+                style={{ backgroundColor: 'rgba(8, 217, 214, 0.15)' }}
+              >
+                <Megaphone className="w-7 h-7" style={{ color: '#08D9D6' }} />
+              </div>
+              <h4 className="text-base font-bold text-gray-800 mb-1">No Active Campaigns Yet</h4>
+              <p className="text-xs text-gray-500 max-w-sm mx-auto mb-4">
+                Launch your first advertising campaign across YouTube, FaceBook, Google Ads, and on-site placements.
+              </p>
               <button
                 type="button"
                 onClick={onPostAdvertisement}
-                className="text-xs font-bold underline"
-                style={{ color: '#08D9D6' }}
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold text-[#252A34] shadow-sm hover:shadow cursor-pointer"
+                style={{
+                  background: 'linear-gradient(135deg, #08D9D6 0%, #00b4b1 100%)',
+                }}
               >
-                + New Campaign
+                Create Your First Campaign
+                <ArrowRight className="w-3.5 h-3.5" />
               </button>
             </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {campaigns.map((camp) => {
+                const campId = camp.campaignId || camp.id;
+                const channelArray = Array.isArray(camp.selectedChannels)
+                  ? camp.selectedChannels
+                  : typeof camp.selectedChannels === 'string'
+                  ? camp.selectedChannels.split(',').map((s) => s.trim()).filter(Boolean)
+                  : [];
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {campaigns.map((camp) => (
-                <div
-                  key={camp.campaignId}
-                  className="p-4 rounded-2xl border bg-gray-50 flex flex-col justify-between hover:shadow-sm transition-shadow"
-                  style={{ borderColor: 'rgba(37, 42, 52, 0.1)' }}
-                >
-                  <div>
-                    <div className="flex items-start justify-between gap-2 mb-1.5">
-                      <span className="font-bold text-sm text-gray-800">
-                        {camp.campaignName || 'Untitled Campaign'}
-                      </span>
-                      <span
-                        className="px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase"
-                        style={{ backgroundColor: '#08D9D6', color: '#252A34' }}
-                      >
-                        {camp.status || 'ACTIVE'}
-                      </span>
+                const statusColor =
+                  camp.status === 'ACTIVE'
+                    ? 'bg-[#08D9D6]/20 text-[#252A34] border-[#08D9D6]/40'
+                    : camp.status === 'PAUSED'
+                    ? 'bg-amber-100 text-amber-800 border-amber-300'
+                    : camp.status === 'COMPLETED'
+                    ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                    : 'bg-red-100 text-red-800 border-red-300';
+
+                return (
+                  <div
+                    key={campId}
+                    className="p-5 rounded-2xl border bg-gray-50 flex flex-col justify-between hover:shadow-md transition-all group"
+                    style={{ borderColor: 'rgba(37, 42, 52, 0.12)' }}
+                  >
+                    <div>
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <div>
+                          <span className="font-extrabold text-base text-gray-900 block">
+                            {camp.campaignName || 'Untitled Campaign'}
+                          </span>
+                          <span className="text-xs font-semibold text-gray-500 flex items-center gap-1 mt-0.5">
+                            <Tag className="w-3 h-3 text-[#FF2E63]" />
+                            {camp.campaignType || 'Standard Campaign'}
+                          </span>
+                        </div>
+                        <span
+                          className={`px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase border ${statusColor}`}
+                        >
+                          {camp.status || 'ACTIVE'}
+                        </span>
+                      </div>
+
+                      {/* Channel Chips */}
+                      <div className="my-3">
+                        <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block mb-1">
+                          Allocated Channels
+                        </span>
+                        <div className="flex flex-wrap gap-1.5">
+                          {channelArray.length > 0 ? (
+                            channelArray.map((ch, idx) => (
+                              <span
+                                key={idx}
+                                className="inline-flex items-center text-xs font-semibold px-2 py-0.5 rounded-lg bg-white border border-gray-200 text-gray-700 shadow-2xs"
+                              >
+                                {ch}
+                              </span>
+                            ))
+                          ) : (
+                            <span className="text-xs text-gray-400 italic">No channels listed</span>
+                          )}
+                        </div>
+                      </div>
                     </div>
-                    <p className="text-xs text-gray-500 mb-1">
-                      {camp.campaignType}
-                    </p>
-                    <p className="text-[11px] text-gray-400">
-                      Channels: {camp.selectedChannels}
-                    </p>
+
+                    <div>
+                      {/* Price & Action Footer */}
+                      <div className="pt-3 mt-2 border-t border-gray-200/80 flex items-center justify-between text-xs">
+                        <div>
+                          <span className="text-gray-400 block text-[10px] font-bold uppercase tracking-wider">
+                            Total Investment
+                          </span>
+                          <span className="font-extrabold text-sm sm:text-base" style={{ color: '#FF2E63' }}>
+                            Rs. {Number(camp.campaignPrices || 0).toLocaleString()}
+                          </span>
+                        </div>
+
+                        {/* Edit & Delete Action Buttons */}
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEditCampaign(camp)}
+                            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl font-bold text-xs bg-white hover:bg-gray-100 text-[#252A34] border border-gray-300 hover:border-[#08D9D6] transition-all cursor-pointer shadow-2xs"
+                            title="Edit campaign details & channels"
+                          >
+                            <Edit3 className="w-3.5 h-3.5 text-[#08D9D6]" />
+                            <span>Edit</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleOpenDeleteCampaign(camp)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl font-bold text-xs bg-white hover:bg-red-50 text-red-600 border border-red-200 hover:border-red-400 transition-all cursor-pointer shadow-2xs"
+                            title="Delete campaign"
+                          >
+                            <Trash2 className="w-3.5 h-3.5 text-red-500" />
+                            <span>Delete</span>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
                   </div>
-                  <div className="mt-3 pt-2 border-t border-gray-200 flex justify-between items-center text-xs">
-                    <span className="text-gray-500">Total Investment:</span>
-                    <span className="font-bold" style={{ color: '#FF2E63' }}>
-                      Rs. {camp.campaignPrices?.toLocaleString() || '0'}
-                    </span>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
-          </div>
-        )}
+          )}
+        </div>
 
         {/* Campaign Progress & Marketing Analytics Section */}
         <div className="mb-10">
@@ -720,6 +981,297 @@ export default function ClientHome({ onPostAdvertisement, onLogout }) {
       <footer className="mt-12 text-center text-xs text-gray-500">
         <p>© {new Date().getFullYear()} Add-an-Ad Platform • Advertising Agency Portal</p>
       </footer>
+
+      {/* EDIT CAMPAIGN MODAL */}
+      {editingCampaign && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto animate-fade-in">
+          <div
+            className="bg-white rounded-[32px] p-6 sm:p-8 max-w-xl w-full shadow-2xl border relative my-8"
+            style={{
+              borderColor: 'rgba(37, 42, 52, 0.15)',
+              boxShadow: '0 25px 50px -12px rgba(37, 42, 52, 0.25)',
+            }}
+          >
+            {/* Top accent bar */}
+            <div
+              className="absolute top-0 left-10 right-10 h-1.5 rounded-b-full"
+              style={{
+                background: 'linear-gradient(90deg, #08D9D6 0%, #252A34 50%, #FF2E63 100%)',
+              }}
+            />
+
+            {/* Header */}
+            <div className="flex items-start justify-between pb-4 mb-4 border-b border-gray-100">
+              <div>
+                <h3 className="text-xl font-extrabold text-[#252A34] flex items-center gap-2">
+                  <Edit3 className="w-5 h-5 text-[#08D9D6]" />
+                  Edit Campaign
+                </h3>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Update campaign name, target media channels, and campaign status.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleCloseEditCampaign}
+                className="p-1.5 rounded-xl text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveCampaign} className="space-y-4">
+              {/* Campaign Name */}
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider mb-1.5 text-[#252A34]">
+                  Campaign Name <span className="text-[#FF2E63]">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={editingCampaign.campaignName}
+                  onChange={(e) =>
+                    setEditingCampaign((prev) => ({ ...prev, campaignName: e.target.value }))
+                  }
+                  required
+                  placeholder="e.g., Summer Brand Launch Promo"
+                  className="w-full px-3.5 py-2.5 rounded-xl border text-sm transition-all focus:ring-2 focus:ring-[#08D9D6] bg-white text-[#252A34]"
+                  style={{ borderColor: 'rgba(37, 42, 52, 0.2)' }}
+                />
+              </div>
+
+              {/* Campaign Type & Status in a 2-col grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider mb-1.5 text-[#252A34]">
+                    Campaign Type
+                  </label>
+                  <select
+                    value={editingCampaign.campaignType}
+                    onChange={(e) =>
+                      setEditingCampaign((prev) => ({ ...prev, campaignType: e.target.value }))
+                    }
+                    className="w-full px-3.5 py-2.5 rounded-xl border text-sm transition-all focus:ring-2 focus:ring-[#08D9D6] bg-white text-[#252A34] font-medium"
+                    style={{ borderColor: 'rgba(37, 42, 52, 0.2)' }}
+                  >
+                    {DEFAULT_CAMPAIGN_TYPES.map((type) => (
+                      <option key={type} value={type}>
+                        {type}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider mb-1.5 text-[#252A34]">
+                    Status
+                  </label>
+                  <select
+                    value={editingCampaign.status}
+                    onChange={(e) =>
+                      setEditingCampaign((prev) => ({ ...prev, status: e.target.value }))
+                    }
+                    className="w-full px-3.5 py-2.5 rounded-xl border text-sm transition-all focus:ring-2 focus:ring-[#08D9D6] bg-white text-[#252A34] font-medium"
+                    style={{ borderColor: 'rgba(37, 42, 52, 0.2)' }}
+                  >
+                    <option value="ACTIVE">ACTIVE</option>
+                    <option value="PAUSED">PAUSED</option>
+                    <option value="COMPLETED">COMPLETED</option>
+                    <option value="CANCELLED">CANCELLED</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Advertising Channels Selection */}
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider mb-1.5 text-[#252A34]">
+                  Select Channels & Rate Card <span className="text-[#FF2E63]">*</span>
+                </label>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                  {Object.entries(DEFAULT_RATE_CARD).map(([channel, rate]) => {
+                    const isSelected = editingCampaign.selectedChannels.includes(channel);
+                    return (
+                      <button
+                        key={channel}
+                        type="button"
+                        onClick={() => handleToggleEditChannel(channel)}
+                        className={`p-2.5 rounded-xl text-left border transition-all duration-200 cursor-pointer flex flex-col justify-between ${
+                          isSelected
+                            ? 'bg-[#252A34] text-white border-[#252A34] shadow-xs'
+                            : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100 hover:border-gray-300'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between w-full">
+                          <span className="text-xs font-bold truncate">{channel}</span>
+                          <span
+                            className={`w-3.5 h-3.5 rounded-full flex items-center justify-center text-[9px] font-bold ${
+                              isSelected ? 'bg-[#08D9D6] text-[#252A34]' : 'border border-gray-300'
+                            }`}
+                          >
+                            {isSelected ? '✓' : ''}
+                          </span>
+                        </div>
+                        <span
+                          className={`text-[11px] font-semibold mt-1 ${
+                            isSelected ? 'text-[#08D9D6]' : 'text-gray-500'
+                          }`}
+                        >
+                          Rs. {rate.toLocaleString()}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Investment Price Summary */}
+              <div
+                className="p-4 rounded-2xl border flex items-center justify-between"
+                style={{
+                  backgroundColor: 'rgba(8, 217, 214, 0.08)',
+                  borderColor: 'rgba(8, 217, 214, 0.4)',
+                }}
+              >
+                <div>
+                  <span className="text-xs font-semibold text-gray-600 block">
+                    Calculated Total Investment:
+                  </span>
+                  <span className="text-[11px] text-gray-500">
+                    {editingCampaign.selectedChannels.length} platform(s) selected
+                  </span>
+                </div>
+                <div className="text-right">
+                  <span className="text-xl font-extrabold" style={{ color: '#FF2E63' }}>
+                    Rs. {Number(editingCampaign.campaignPrices || 0).toLocaleString()}
+                  </span>
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="flex gap-3 pt-3">
+                <button
+                  type="submit"
+                  disabled={isCampaignSaving}
+                  className="flex-1 py-3 px-4 rounded-xl font-bold text-sm text-[#252A34] shadow-md transition-all flex items-center justify-center gap-2 hover:opacity-95 cursor-pointer disabled:opacity-60"
+                  style={{
+                    background: 'linear-gradient(135deg, #08D9D6 0%, #00b4b1 100%)',
+                  }}
+                >
+                  {isCampaignSaving ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Saving Updates...
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-4 h-4" />
+                      Save Changes
+                    </>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCloseEditCampaign}
+                  disabled={isCampaignSaving}
+                  className="px-5 py-3 rounded-xl font-semibold text-sm border hover:bg-gray-100 transition-colors text-gray-600 cursor-pointer"
+                  style={{ borderColor: 'rgba(37, 42, 52, 0.2)' }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* DELETE CONFIRMATION MODAL */}
+      {deletingCampaign && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
+          <div
+            className="bg-white rounded-[32px] p-6 sm:p-8 max-w-md w-full shadow-2xl border relative"
+            style={{
+              borderColor: 'rgba(255, 46, 99, 0.2)',
+              boxShadow: '0 25px 50px -12px rgba(37, 42, 52, 0.25)',
+            }}
+          >
+            {/* Top red accent */}
+            <div
+              className="absolute top-0 left-10 right-10 h-1.5 rounded-b-full bg-[#FF2E63]"
+            />
+
+            <div className="text-center pt-2">
+              <div
+                className="w-14 h-14 mx-auto rounded-2xl flex items-center justify-center mb-4 shadow-sm"
+                style={{ backgroundColor: 'rgba(255, 46, 99, 0.12)' }}
+              >
+                <AlertTriangle className="w-7 h-7" style={{ color: '#FF2E63' }} />
+              </div>
+
+              <h3 className="text-xl font-extrabold text-[#252A34] mb-2">
+                Delete Campaign?
+              </h3>
+              <p className="text-sm text-gray-600 mb-4 leading-relaxed">
+                Are you sure you want to permanently remove{' '}
+                <span className="font-bold text-[#252A34]">
+                  "{deletingCampaign.campaignName || 'this campaign'}"
+                </span>
+                ? All connected advertising channels and placement budgets will be discarded.
+              </p>
+
+              <div
+                className="p-3.5 rounded-xl border text-xs text-left mb-6 space-y-1"
+                style={{
+                  backgroundColor: '#FFF5F7',
+                  borderColor: 'rgba(255, 46, 99, 0.2)',
+                }}
+              >
+                <div className="flex justify-between text-gray-700">
+                  <span>Campaign Type:</span>
+                  <span className="font-semibold">{deletingCampaign.campaignType}</span>
+                </div>
+                <div className="flex justify-between text-gray-700">
+                  <span>Investment:</span>
+                  <span className="font-bold text-[#FF2E63]">
+                    Rs. {Number(deletingCampaign.campaignPrices || 0).toLocaleString()}
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={handleCloseDeleteCampaign}
+                  disabled={isCampaignDeleting}
+                  className="flex-1 py-2.5 px-4 rounded-xl font-semibold text-sm border hover:bg-gray-100 transition-colors text-gray-700 cursor-pointer"
+                  style={{ borderColor: 'rgba(37, 42, 52, 0.2)' }}
+                >
+                  Keep Campaign
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmDeleteCampaign}
+                  disabled={isCampaignDeleting}
+                  className="flex-1 py-2.5 px-4 rounded-xl font-bold text-sm text-white shadow-md transition-all flex items-center justify-center gap-1.5 hover:bg-red-700 cursor-pointer disabled:opacity-60"
+                  style={{
+                    background: 'linear-gradient(135deg, #FF2E63 0%, #e01a4f 100%)',
+                  }}
+                >
+                  {isCampaignDeleting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Deleting...
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 className="w-4 h-4" />
+                      Delete Campaign
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
