@@ -17,12 +17,19 @@ import {
   Loader2,
   Activity,
   Zap,
+  Filter,
+  BarChart2,
+  Printer,
+  User,
+  Info,
 } from 'lucide-react';
 import {
   getAllAnalyses,
+  getAnalysisByClientId,
+  getAnalysisByCampaignId,
+  getAnalysisById,
   createAnalysis,
   updateAnalysis,
-  incrementViews,
   deleteAnalysis,
 } from './marketingApi';
 import { getAllClients } from '../client/api';
@@ -37,9 +44,11 @@ export default function MarketingDashboard({ onBackToDashboard }) {
   // Filter & Search states
   const [selectedClientFilter, setSelectedClientFilter] = useState('ALL');
   const [selectedProgressFilter, setSelectedProgressFilter] = useState('ALL');
+  const [campaignIdFilter, setCampaignIdFilter] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [isFiltering, setIsFiltering] = useState(false);
 
-  // Active tab: 'analytics' | 'create'
+  // Active tab: 'analytics' | 'create' | 'report'
   const [activeTab, setActiveTab] = useState('analytics');
 
   // Create Analysis Form State
@@ -67,11 +76,12 @@ export default function MarketingDashboard({ onBackToDashboard }) {
   const [editFormData, setEditFormData] = useState({});
   const [isSubmittingEdit, setIsSubmittingEdit] = useState(false);
 
-  // View Increment Simulator State
-  const [simulatingId, setSimulatingId] = useState(null);
+  // Details Modal State
+  const [viewingDetails, setViewingDetails] = useState(null);
 
   // Delete Confirmation State
   const [deletingId, setDeletingId] = useState(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Fetch campaigns whenever client selection changes in create form
   const fetchCampaignsForClient = async (cId) => {
@@ -132,40 +142,38 @@ export default function MarketingDashboard({ onBackToDashboard }) {
   };
 
   useEffect(() => {
-    let isMounted = true;
-    async function init() {
-      setIsLoading(true);
-      try {
-        const [analysisList, clientsList] = await Promise.all([
-          getAllAnalyses().catch(() => []),
-          getAllClients().catch(() => [
-            { clientID: 1, companyName: 'Nova Marketing Agency', firstName: 'Alexander' },
-            { clientID: 101, companyName: 'OmniVanguard Digital', firstName: 'Marcus' },
-          ]),
-        ]);
-
-        if (isMounted) {
-          setAnalyses(analysisList || []);
-          setClients(clientsList || []);
-          if (clientsList && clientsList.length > 0) {
-            const firstClientId = String(clientsList[0].clientID);
-            setCreateForm((prev) => ({ ...prev, clientId: firstClientId }));
-            fetchCampaignsForClient(firstClientId);
-          }
-        }
-      } catch (err) {
-        console.warn('Error loading marketing data:', err);
-      } finally {
-        if (isMounted) {
-          setIsLoading(false);
-        }
-      }
-    }
-    init();
-    return () => {
-      isMounted = false;
-    };
+    loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Apply Client / Campaign / Progress Filters using Backend Endpoints
+  const applyFilters = async () => {
+    setIsFiltering(true);
+    try {
+      let result = [];
+      if (campaignIdFilter && campaignIdFilter.trim() !== '') {
+        // Backend GET /api/marketing/analysis/campaign/{campaignId}
+        result = await getAnalysisByCampaignId(campaignIdFilter.trim());
+      } else if (selectedClientFilter !== 'ALL') {
+        // Backend GET /api/marketing/analysis/client/{clientId}
+        result = await getAnalysisByClientId(selectedClientFilter);
+      } else {
+        // Backend GET /api/marketing/analysis/all
+        result = await getAllAnalyses();
+      }
+
+      setAnalyses(result || []);
+    } catch (err) {
+      console.warn('Error applying marketing filters:', err);
+    } finally {
+      setIsFiltering(false);
+    }
+  };
+
+  useEffect(() => {
+    applyFilters();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedClientFilter]);
 
   const handleClientChange = (e) => {
     const cId = e.target.value;
@@ -173,11 +181,11 @@ export default function MarketingDashboard({ onBackToDashboard }) {
     fetchCampaignsForClient(cId);
   };
 
-  // Submit Create Analysis
+  // 1. CREATE ANALYSIS (POST /api/marketing/analysis/create)
   const handleCreateSubmit = async (e) => {
     e.preventDefault();
     if (!createForm.clientId) {
-      setNotification({ type: 'error', text: 'Please select a client.' });
+      setNotification({ type: 'error', text: 'client_id is required to connect client with analysis.' });
       return;
     }
 
@@ -212,7 +220,7 @@ export default function MarketingDashboard({ onBackToDashboard }) {
     }
   };
 
-  // Open Edit Modal
+  // 2. OPEN EDIT MODAL
   const openEditModal = (analysis) => {
     setEditingAnalysis(analysis);
     setEditFormData({
@@ -226,7 +234,7 @@ export default function MarketingDashboard({ onBackToDashboard }) {
     });
   };
 
-  // Submit Edit Form
+  // 3. SUBMIT EDIT (PUT /api/marketing/analysis/{analysisId})
   const handleEditSubmit = async (e) => {
     e.preventDefault();
     if (!editingAnalysis) return;
@@ -259,30 +267,16 @@ export default function MarketingDashboard({ onBackToDashboard }) {
     }
   };
 
-  // Increment live views simulation
-  const handleIncrementViews = async (analysisId, count = 50) => {
-    setSimulatingId(analysisId);
-    try {
-      const res = await incrementViews(analysisId, count);
-      setNotification({
-        type: 'success',
-        text: `Simulated +${count} live audience impressions on "${res.campaignName || 'Campaign'}"! (New Views: ${res.updatedCampaignViews?.toLocaleString()})`,
-      });
-      await loadData();
-    } catch (err) {
-      console.error('Failed to increment views:', err);
-    } finally {
-      setSimulatingId(null);
-    }
-  };
 
-  // Delete Analysis
+
+  // 5. DELETE ANALYSIS (DELETE /api/marketing/analysis/{analysisId})
   const handleDelete = async (analysisId) => {
+    setIsDeleting(true);
     try {
       await deleteAnalysis(analysisId);
       setNotification({
         type: 'success',
-        text: `Campaign analysis #${analysisId} deleted.`,
+        text: `Campaign analysis #${analysisId} deleted successfully.`,
       });
       setDeletingId(null);
       await loadData();
@@ -291,21 +285,37 @@ export default function MarketingDashboard({ onBackToDashboard }) {
         type: 'error',
         text: err.message || 'Failed to delete analysis.',
       });
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  // 6. VIEW DETAILS (GET /api/marketing/analysis/{analysisId})
+  const handleViewDetails = async (analysisId) => {
+    try {
+      const detail = await getAnalysisById(analysisId);
+      setViewingDetails(detail);
+    } catch (err) {
+      setNotification({
+        type: 'error',
+        text: err.message || 'Failed to fetch analysis details.',
+      });
     }
   };
 
   // Aggregate Metrics calculation
-  const totalViews = analyses.reduce((acc, a) => acc + (a.campaignViews || 0), 0);
-  const totalClicks = analyses.reduce((acc, a) => acc + (a.clicks || 0), 0);
+  const totalViews = analyses.reduce((acc, a) => acc + (Number(a.campaignViews) || 0), 0);
+  const totalClicks = analyses.reduce((acc, a) => acc + (Number(a.clicks) || 0), 0);
   const avgCtr = totalViews > 0 ? ((totalClicks / totalViews) * 100).toFixed(2) : '0.00';
-  const activeCount = analyses.filter((a) => !String(a.campaignProgress).toLowerCase().includes('concluded') && !String(a.campaignProgress).toLowerCase().includes('completed')).length;
+  const activeCount = analyses.filter(
+    (a) =>
+      !String(a.campaignProgress).toLowerCase().includes('concluded') &&
+      !String(a.campaignProgress).toLowerCase().includes('completed')
+  ).length;
   const concludedCount = analyses.length - activeCount;
 
   // Filtered List
   const filteredAnalyses = analyses.filter((item) => {
-    const matchesClient =
-      selectedClientFilter === 'ALL' || String(item.clientId) === String(selectedClientFilter);
-
     const matchesProgress =
       selectedProgressFilter === 'ALL' ||
       (selectedProgressFilter === 'ACTIVE' &&
@@ -321,9 +331,10 @@ export default function MarketingDashboard({ onBackToDashboard }) {
       item.campaignName?.toLowerCase().includes(q) ||
       item.remarks?.toLowerCase().includes(q) ||
       String(item.clientId).includes(q) ||
+      String(item.campaignId || '').includes(q) ||
       String(item.analysisId).includes(q);
 
-    return matchesClient && matchesProgress && matchesSearch;
+    return matchesProgress && matchesSearch;
   });
 
   // Calculate Progress Percentage for progress bar
@@ -331,7 +342,11 @@ export default function MarketingDashboard({ onBackToDashboard }) {
     if (!progressStr) return 50;
     const match = String(progressStr).match(/(\d+)%/);
     if (match) return Math.min(100, Math.max(0, parseInt(match[1], 10)));
-    if (progressStr.toLowerCase().includes('concluded') || progressStr.toLowerCase().includes('completed')) return 100;
+    if (
+      progressStr.toLowerCase().includes('concluded') ||
+      progressStr.toLowerCase().includes('completed')
+    )
+      return 100;
     if (progressStr.toLowerCase().includes('scheduled')) return 20;
     return 60;
   };
@@ -364,9 +379,7 @@ export default function MarketingDashboard({ onBackToDashboard }) {
               <span className="text-xl font-bold tracking-tight text-[#252A34]">
                 Add-an-Ad
               </span>
-              <span
-                className="text-[11px] font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wider text-white bg-[#FF2E63]"
-              >
+              <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wider text-white bg-[#FF2E63]">
                 Marketing & Analytics Desk
               </span>
             </div>
@@ -381,18 +394,18 @@ export default function MarketingDashboard({ onBackToDashboard }) {
             type="button"
             onClick={loadData}
             disabled={isLoading}
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold border border-gray-300 transition-all duration-200 bg-white hover:bg-gray-50 text-[#252A34] shadow-xs hover:border-[#08D9D6]"
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold border border-gray-300 transition-all duration-200 bg-white hover:bg-gray-50 text-[#252A34] shadow-xs hover:border-[#08D9D6] cursor-pointer"
             title="Refresh Analytics"
           >
             <RefreshCw className={`w-3.5 h-3.5 text-[#08D9D6] ${isLoading ? 'animate-spin' : ''}`} />
-            <span>Refresh</span>
+            <span>Sync Data</span>
           </button>
 
           {onBackToDashboard && (
             <button
               type="button"
               onClick={onBackToDashboard}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold border border-gray-300 transition-all duration-200 bg-white hover:bg-gray-50 text-[#252A34] shadow-xs hover:border-[#08D9D6]"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold border border-gray-300 transition-all duration-200 bg-white hover:bg-gray-50 text-[#252A34] shadow-xs hover:border-[#08D9D6] cursor-pointer"
             >
               <ArrowLeft className="w-4 h-4 text-[#252A34]" />
               Back to Suite
@@ -413,13 +426,17 @@ export default function MarketingDashboard({ onBackToDashboard }) {
             }`}
           >
             <div className="flex items-center space-x-2 text-xs sm:text-sm font-semibold">
-              <CheckCircle2 className={`w-4 h-4 flex-shrink-0 ${notification.type === 'success' ? 'text-[#08D9D6]' : 'text-[#FF2E63]'}`} />
+              <CheckCircle2
+                className={`w-4 h-4 flex-shrink-0 ${
+                  notification.type === 'success' ? 'text-[#08D9D6]' : 'text-[#FF2E63]'
+                }`}
+              />
               <span>{notification.text}</span>
             </div>
             <button
               type="button"
               onClick={() => setNotification(null)}
-              className="text-gray-400 hover:text-gray-600 ml-3"
+              className="text-gray-400 hover:text-gray-600 ml-3 cursor-pointer"
             >
               <X className="w-4 h-4" />
             </button>
@@ -430,7 +447,9 @@ export default function MarketingDashboard({ onBackToDashboard }) {
         <div className="grid grid-cols-2 lg:grid-cols-5 gap-3.5 mb-8">
           <div className="p-4 rounded-2xl bg-white border border-gray-200 shadow-xs">
             <div className="flex items-center justify-between mb-2">
-              <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">Total Views</span>
+              <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">
+                Total Views
+              </span>
               <Eye className="w-4 h-4 text-[#08D9D6]" />
             </div>
             <div className="text-xl sm:text-2xl font-black text-[#252A34]">
@@ -444,59 +463,53 @@ export default function MarketingDashboard({ onBackToDashboard }) {
 
           <div className="p-4 rounded-2xl bg-white border border-gray-200 shadow-xs">
             <div className="flex items-center justify-between mb-2">
-              <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">Total Clicks</span>
+              <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">
+                Total Clicks
+              </span>
               <MousePointerClick className="w-4 h-4 text-[#FF2E63]" />
             </div>
             <div className="text-xl sm:text-2xl font-black text-[#252A34]">
               {totalClicks.toLocaleString()}
             </div>
-            <div className="text-[10px] text-gray-400 mt-1">
-              Audience Interactions
-            </div>
+            <div className="text-[10px] text-gray-400 mt-1">Audience Interactions</div>
           </div>
 
           <div className="p-4 rounded-2xl bg-white border border-gray-200 shadow-xs">
             <div className="flex items-center justify-between mb-2">
-              <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">Average CTR</span>
+              <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">
+                Average CTR
+              </span>
               <TrendingUp className="w-4 h-4 text-[#FF2E63]" />
             </div>
-            <div className="text-xl sm:text-2xl font-black text-[#FF2E63]">
-              {avgCtr}%
-            </div>
-            <div className="text-[10px] text-gray-400 mt-1">
-              Click-Through Ratio
-            </div>
+            <div className="text-xl sm:text-2xl font-black text-[#FF2E63]">{avgCtr}%</div>
+            <div className="text-[10px] text-gray-400 mt-1">Click-Through Ratio</div>
           </div>
 
           <div className="p-4 rounded-2xl bg-white border border-gray-200 shadow-xs">
             <div className="flex items-center justify-between mb-2">
-              <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">Active Campaigns</span>
+              <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">
+                Active Campaigns
+              </span>
               <Zap className="w-4 h-4 text-[#08D9D6]" />
             </div>
-            <div className="text-xl sm:text-2xl font-black text-[#08D9D6]">
-              {activeCount}
-            </div>
-            <div className="text-[10px] text-gray-400 mt-1">
-              Live Visibility Period
-            </div>
+            <div className="text-xl sm:text-2xl font-black text-[#08D9D6]">{activeCount}</div>
+            <div className="text-[10px] text-gray-400 mt-1">Live Visibility Period</div>
           </div>
 
           <div className="p-4 rounded-2xl bg-white border border-gray-200 shadow-xs col-span-2 sm:col-span-1">
             <div className="flex items-center justify-between mb-2">
-              <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">Total Tracked</span>
+              <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">
+                Total Tracked
+              </span>
               <Layers className="w-4 h-4 text-[#252A34]" />
             </div>
-            <div className="text-xl sm:text-2xl font-black text-[#252A34]">
-              {analyses.length}
-            </div>
-            <div className="text-[10px] text-gray-400 mt-1">
-              {concludedCount} Concluded
-            </div>
+            <div className="text-xl sm:text-2xl font-black text-[#252A34]">{analyses.length}</div>
+            <div className="text-[10px] text-gray-400 mt-1">{concludedCount} Concluded</div>
           </div>
         </div>
 
         {/* Tab Switcher */}
-        <div className="flex items-center gap-2 mb-6 border-b border-gray-200 pb-3">
+        <div className="flex flex-wrap items-center gap-2 mb-6 border-b border-gray-200 pb-3">
           <button
             type="button"
             onClick={() => setActiveTab('analytics')}
@@ -506,7 +519,10 @@ export default function MarketingDashboard({ onBackToDashboard }) {
                 : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-200'
             }`}
             style={{
-              background: activeTab === 'analytics' ? 'linear-gradient(135deg, #08D9D6 0%, #00b4b1 100%)' : undefined,
+              background:
+                activeTab === 'analytics'
+                  ? 'linear-gradient(135deg, #08D9D6 0%, #00b4b1 100%)'
+                  : undefined,
             }}
           >
             <TrendingUp className="w-4 h-4" />
@@ -525,15 +541,28 @@ export default function MarketingDashboard({ onBackToDashboard }) {
             <PlusCircle className="w-4 h-4" />
             <span>Create Campaign Analysis</span>
           </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('report')}
+            className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all flex items-center gap-2 cursor-pointer ${
+              activeTab === 'report'
+                ? 'bg-[#252A34] text-white shadow-md'
+                : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-200'
+            }`}
+          >
+            <BarChart2 className="w-4 h-4" />
+            <span>Audience Performance Report</span>
+          </button>
         </div>
 
         {/* TAB 1: ANALYTICS & CAMPAIGN PROGRESS TRACKING */}
         {activeTab === 'analytics' && (
           <div>
-            {/* Filters bar */}
+            {/* Filters bar (matching backend GET /analysis/client/{clientId} & /campaign/{campaignId}) */}
             <div className="p-4 rounded-2xl bg-white border border-gray-200 shadow-xs mb-6 flex flex-col md:flex-row items-center justify-between gap-4">
               {/* Search */}
-              <div className="relative w-full md:w-80">
+              <div className="relative w-full md:w-72">
                 <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
                 <input
                   type="text"
@@ -546,24 +575,56 @@ export default function MarketingDashboard({ onBackToDashboard }) {
 
               {/* Filters */}
               <div className="flex flex-wrap items-center gap-2.5 w-full md:w-auto">
-                <div className="flex items-center gap-1.5 text-xs text-gray-500">
+                <div className="flex items-center gap-1 text-xs text-gray-500">
+                  <Filter className="w-3.5 h-3.5 text-[#08D9D6]" />
                   <span>Client:</span>
                   <select
                     value={selectedClientFilter}
                     onChange={(e) => setSelectedClientFilter(e.target.value)}
-                    className="px-2.5 py-1.5 rounded-lg border border-gray-200 text-xs bg-white text-[#252A34] focus:outline-none"
+                    className="px-2.5 py-1.5 rounded-lg border border-gray-200 text-xs bg-white text-[#252A34] focus:outline-none focus:ring-1 focus:ring-[#08D9D6]"
                   >
                     <option value="ALL">All Clients</option>
                     {clients.map((c) => (
                       <option key={c.clientID} value={String(c.clientID)}>
-                        #{c.clientID} - {c.companyName || c.firstName}
+                        Client #{c.clientID} - {c.companyName || c.firstName}
                       </option>
                     ))}
                   </select>
                 </div>
 
+                <div className="flex items-center gap-1 text-xs text-gray-500">
+                  <span>Campaign #:</span>
+                  <input
+                    type="number"
+                    value={campaignIdFilter}
+                    onChange={(e) => setCampaignIdFilter(e.target.value)}
+                    placeholder="Camp ID"
+                    className="w-20 px-2 py-1.5 rounded-lg border border-gray-200 text-xs bg-white text-[#252A34] focus:outline-none focus:ring-1 focus:ring-[#08D9D6]"
+                  />
+                  <button
+                    type="button"
+                    onClick={applyFilters}
+                    className="px-2 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-xs font-bold text-gray-700 cursor-pointer"
+                  >
+                    Go
+                  </button>
+                  {campaignIdFilter && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCampaignIdFilter('');
+                        applyFilters();
+                      }}
+                      className="p-1 text-gray-400 hover:text-gray-600 cursor-pointer"
+                      title="Clear campaign filter"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+
                 <div className="flex items-center gap-1.5 text-xs text-gray-500">
-                  <span>Progress:</span>
+                  <span>Status:</span>
                   <select
                     value={selectedProgressFilter}
                     onChange={(e) => setSelectedProgressFilter(e.target.value)}
@@ -578,17 +639,24 @@ export default function MarketingDashboard({ onBackToDashboard }) {
             </div>
 
             {/* Campaign Analysis Cards Grid */}
-            {filteredAnalyses.length === 0 ? (
+            {isFiltering ? (
+              <div className="p-12 text-center rounded-3xl bg-white border border-gray-200">
+                <Loader2 className="w-6 h-6 animate-spin mx-auto text-[#08D9D6]" />
+                <span className="text-xs text-gray-500 mt-2 block">Filtering analysis records...</span>
+              </div>
+            ) : filteredAnalyses.length === 0 ? (
               <div className="p-12 text-center rounded-3xl bg-white border border-dashed border-gray-300">
                 <Layers className="w-12 h-12 mx-auto text-gray-300 mb-3" />
-                <h3 className="text-base font-bold text-[#252A34] mb-1">No Campaign Analyses Found</h3>
+                <h3 className="text-base font-bold text-[#252A34] mb-1">
+                  No Campaign Analyses Found
+                </h3>
                 <p className="text-xs text-gray-500 max-w-md mx-auto mb-4">
-                  There are no marketing analysis records matching your filters. You can create a new campaign analysis record or clear the filters.
+                  There are no marketing analysis records matching your criteria. Create a new campaign analysis record or clear filters.
                 </p>
                 <button
                   type="button"
                   onClick={() => setActiveTab('create')}
-                  className="px-4 py-2 rounded-xl text-xs font-bold text-[#252A34] shadow-sm"
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-[#252A34] shadow-sm cursor-pointer"
                   style={{ background: 'linear-gradient(135deg, #08D9D6 0%, #00b4b1 100%)' }}
                 >
                   + Create First Analysis
@@ -597,9 +665,13 @@ export default function MarketingDashboard({ onBackToDashboard }) {
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                 {filteredAnalyses.map((item) => {
-                  const client = clients.find((c) => Number(c.clientID) === Number(item.clientId));
+                  const client = clients.find(
+                    (c) => Number(c.clientID) === Number(item.clientId)
+                  );
                   const percent = parseProgressPercent(item.campaignProgress);
-                  const isConcluded = String(item.campaignProgress).toLowerCase().includes('concluded') || String(item.campaignProgress).toLowerCase().includes('completed');
+                  const isConcluded =
+                    String(item.campaignProgress).toLowerCase().includes('concluded') ||
+                    String(item.campaignProgress).toLowerCase().includes('completed');
 
                   return (
                     <div
@@ -635,13 +707,13 @@ export default function MarketingDashboard({ onBackToDashboard }) {
                         </div>
 
                         {/* Visible Dates & Duration Interval */}
-                        <div
-                          className="p-3 rounded-2xl mb-4 border border-gray-200 flex items-center justify-between text-xs bg-[#EAEAEA]/40"
-                        >
+                        <div className="p-3 rounded-2xl mb-4 border border-gray-200 flex items-center justify-between text-xs bg-[#EAEAEA]/40">
                           <div className="flex items-center gap-2 text-gray-600">
                             <Calendar className="w-4 h-4 text-[#08D9D6]" />
                             <div>
-                              <div className="text-[10px] text-gray-400 font-semibold uppercase">Visibility Interval</div>
+                              <div className="text-[10px] text-gray-400 font-semibold uppercase">
+                                Visibility Interval
+                              </div>
                               <span className="font-bold text-[#252A34]">
                                 {item.visibleStartDate || 'N/A'} → {item.visibleEndDate || 'N/A'}
                               </span>
@@ -652,24 +724,33 @@ export default function MarketingDashboard({ onBackToDashboard }) {
                         {/* Audience Views & Clicks Metrics Pill */}
                         <div className="grid grid-cols-3 gap-2.5 mb-4 text-center">
                           <div className="p-2.5 rounded-xl bg-gray-50 border border-gray-100">
-                            <div className="text-[10px] text-gray-400 font-bold uppercase">Audience Views</div>
+                            <div className="text-[10px] text-gray-400 font-bold uppercase">
+                              Audience Views
+                            </div>
                             <div className="text-base font-black text-[#252A34] mt-0.5">
-                              {(item.campaignViews || 0).toLocaleString()}
+                              {(Number(item.campaignViews) || 0).toLocaleString()}
                             </div>
                           </div>
 
                           <div className="p-2.5 rounded-xl bg-gray-50 border border-gray-100">
-                            <div className="text-[10px] text-gray-400 font-bold uppercase">Clicks</div>
+                            <div className="text-[10px] text-gray-400 font-bold uppercase">
+                              Clicks
+                            </div>
                             <div className="text-base font-black text-[#FF2E63]">
-                              {(item.clicks || 0).toLocaleString()}
+                              {(Number(item.clicks) || 0).toLocaleString()}
                             </div>
                           </div>
 
                           <div className="p-2.5 rounded-xl bg-gray-50 border border-gray-100">
-                            <div className="text-[10px] text-gray-400 font-bold uppercase">CTR</div>
+                            <div className="text-[10px] text-gray-400 font-bold uppercase">
+                              CTR
+                            </div>
                             <div className="text-base font-black text-[#08D9D6]">
-                              {item.campaignViews > 0
-                                ? (((item.clicks || 0) / item.campaignViews) * 100).toFixed(2)
+                              {Number(item.campaignViews) > 0
+                                ? (
+                                    ((Number(item.clicks) || 0) / Number(item.campaignViews)) *
+                                    100
+                                  ).toFixed(2)
                                 : '0.00'}
                               %
                             </div>
@@ -702,49 +783,53 @@ export default function MarketingDashboard({ onBackToDashboard }) {
 
                         {/* Analyst Remarks */}
                         {item.remarks && (
-                          <div
-                            className="p-3 rounded-xl border border-gray-200 text-xs mb-4 bg-[#EAEAEA]/50 text-[#252A34]"
-                          >
+                          <div className="p-3 rounded-xl border border-gray-200 text-xs mb-4 bg-[#EAEAEA]/50 text-[#252A34]">
                             <span className="font-bold block text-[10px] uppercase tracking-wider mb-1 text-[#FF2E63]">
                               Marketing Analyst Remarks:
                             </span>
-                            <p className="italic text-gray-700 leading-relaxed">"{item.remarks}"</p>
+                            <p className="italic text-gray-700 leading-relaxed">
+                              "{item.remarks}"
+                            </p>
                           </div>
                         )}
                       </div>
 
                       {/* Card Actions */}
                       <div className="pt-3 border-t border-gray-100 flex items-center justify-between gap-2">
-                        {/* Simulate Live Audience View button */}
-                        <button
-                          type="button"
-                          onClick={() => handleIncrementViews(item.analysisId, 100)}
-                          disabled={simulatingId === item.analysisId}
-                          className="px-3 py-1.5 rounded-xl text-xs font-bold border border-[#FF2E63]/40 text-[#FF2E63] transition-all flex items-center gap-1 hover:bg-[#FF2E63]/10 cursor-pointer"
-                          title="Simulate +100 live impressions from advertising networks"
-                        >
-                          {simulatingId === item.analysisId ? (
-                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                          ) : (
-                            <Sparkles className="w-3.5 h-3.5 text-[#FF2E63]" />
-                          )}
-                          <span>+100 Views</span>
-                        </button>
+                        {/* Audited Telemetry Indicator */}
+                        <div className="flex items-center gap-1.5 text-xs text-gray-500">
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-gray-50 border border-gray-200 text-[11px] font-semibold text-gray-600">
+                            <CheckCircle2 className="w-3.5 h-3.5 text-[#008280]" />
+                            <span>Audited Metrics</span>
+                          </span>
+                        </div>
 
                         <div className="flex items-center gap-1.5">
+                          {/* Details Modal Trigger (GET /analysis/{analysisId}) */}
+                          <button
+                            type="button"
+                            onClick={() => handleViewDetails(item.analysisId)}
+                            className="p-1.5 rounded-lg border border-gray-200 text-gray-500 hover:text-[#252A34] hover:bg-gray-50 cursor-pointer"
+                            title="View analysis details"
+                          >
+                            <Info className="w-3.5 h-3.5 text-[#08D9D6]" />
+                          </button>
+
+                          {/* Edit Trigger (PUT /analysis/{analysisId}) */}
                           <button
                             type="button"
                             onClick={() => openEditModal(item)}
-                            className="p-2 rounded-xl text-[#252A34] hover:bg-gray-100 border border-gray-200 transition-colors"
+                            className="p-1.5 rounded-lg border border-gray-200 text-gray-500 hover:text-[#252A34] hover:bg-gray-50 cursor-pointer"
                             title="Edit campaign progress & remarks"
                           >
                             <Edit3 className="w-3.5 h-3.5 text-[#08D9D6]" />
                           </button>
 
+                          {/* Delete Trigger (DELETE /analysis/{analysisId}) */}
                           <button
                             type="button"
                             onClick={() => setDeletingId(item.analysisId)}
-                            className="p-2 rounded-xl text-gray-600 hover:bg-rose-50 border border-gray-200 transition-colors"
+                            className="p-1.5 rounded-lg border border-gray-200 text-gray-400 hover:text-[#FF2E63] hover:bg-rose-50 cursor-pointer"
                             title="Delete analysis record"
                           >
                             <Trash2 className="w-3.5 h-3.5 text-[#FF2E63]" />
@@ -759,18 +844,16 @@ export default function MarketingDashboard({ onBackToDashboard }) {
           </div>
         )}
 
-        {/* TAB 2: CREATE CAMPAIGN ANALYSIS FORM */}
+        {/* TAB 2: CREATE CAMPAIGN ANALYSIS FORM (POST /api/marketing/analysis/create) */}
         {activeTab === 'create' && (
-          <div
-            className="rounded-[32px] p-6 sm:p-8 bg-white border border-gray-200 shadow-md max-w-2xl mx-auto"
-          >
+          <div className="rounded-[32px] p-6 sm:p-8 bg-white border border-gray-200 shadow-md max-w-2xl mx-auto">
             <div className="border-b border-gray-100 pb-4 mb-6">
               <h2 className="text-xl font-bold flex items-center gap-2 text-[#252A34]">
                 <PlusCircle className="w-5 h-5 text-[#08D9D6]" />
                 Create New Campaign Analysis
               </h2>
               <p className="text-xs text-gray-500 mt-1">
-                Link client campaigns with analytical tracking, visible dates, audience views, and optimization remarks.
+                Link client campaigns with analytical tracking, visible dates, audience views, and optimization remarks (Spring Boot spec).
               </p>
             </div>
 
@@ -810,7 +893,9 @@ export default function MarketingDashboard({ onBackToDashboard }) {
                     value={createForm.campaignId}
                     onChange={(e) => {
                       const selectedCampId = e.target.value;
-                      const campObj = availableClientCampaigns.find((c) => String(c.campaignId) === selectedCampId);
+                      const campObj = availableClientCampaigns.find(
+                        (c) => String(c.campaignId) === selectedCampId
+                      );
                       setCreateForm((prev) => ({
                         ...prev,
                         campaignId: selectedCampId,
@@ -841,7 +926,9 @@ export default function MarketingDashboard({ onBackToDashboard }) {
                 <input
                   type="text"
                   value={createForm.campaignName}
-                  onChange={(e) => setCreateForm((prev) => ({ ...prev, campaignName: e.target.value }))}
+                  onChange={(e) =>
+                    setCreateForm((prev) => ({ ...prev, campaignName: e.target.value }))
+                  }
                   required
                   placeholder="e.g. Summer Multi-Channel Launch"
                   className="w-full p-3 rounded-2xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#08D9D6] text-[#252A34]"
@@ -857,7 +944,9 @@ export default function MarketingDashboard({ onBackToDashboard }) {
                   <input
                     type="date"
                     value={createForm.visibleStartDate}
-                    onChange={(e) => setCreateForm((prev) => ({ ...prev, visibleStartDate: e.target.value }))}
+                    onChange={(e) =>
+                      setCreateForm((prev) => ({ ...prev, visibleStartDate: e.target.value }))
+                    }
                     className="w-full p-3 rounded-2xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#08D9D6] text-[#252A34]"
                   />
                 </div>
@@ -869,7 +958,9 @@ export default function MarketingDashboard({ onBackToDashboard }) {
                   <input
                     type="date"
                     value={createForm.visibleEndDate}
-                    onChange={(e) => setCreateForm((prev) => ({ ...prev, visibleEndDate: e.target.value }))}
+                    onChange={(e) =>
+                      setCreateForm((prev) => ({ ...prev, visibleEndDate: e.target.value }))
+                    }
                     className="w-full p-3 rounded-2xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#08D9D6] text-[#252A34]"
                   />
                 </div>
@@ -885,7 +976,9 @@ export default function MarketingDashboard({ onBackToDashboard }) {
                     type="number"
                     min="0"
                     value={createForm.campaignViews}
-                    onChange={(e) => setCreateForm((prev) => ({ ...prev, campaignViews: e.target.value }))}
+                    onChange={(e) =>
+                      setCreateForm((prev) => ({ ...prev, campaignViews: e.target.value }))
+                    }
                     className="w-full p-3 rounded-2xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#08D9D6] text-[#252A34]"
                   />
                 </div>
@@ -898,7 +991,9 @@ export default function MarketingDashboard({ onBackToDashboard }) {
                     type="number"
                     min="0"
                     value={createForm.clicks}
-                    onChange={(e) => setCreateForm((prev) => ({ ...prev, clicks: e.target.value }))}
+                    onChange={(e) =>
+                      setCreateForm((prev) => ({ ...prev, clicks: e.target.value }))
+                    }
                     className="w-full p-3 rounded-2xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#08D9D6] text-[#252A34]"
                   />
                 </div>
@@ -911,7 +1006,9 @@ export default function MarketingDashboard({ onBackToDashboard }) {
                 </label>
                 <select
                   value={createForm.campaignProgress}
-                  onChange={(e) => setCreateForm((prev) => ({ ...prev, campaignProgress: e.target.value }))}
+                  onChange={(e) =>
+                    setCreateForm((prev) => ({ ...prev, campaignProgress: e.target.value }))
+                  }
                   className="w-full p-3 rounded-2xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#08D9D6] bg-white text-[#252A34]"
                 >
                   <option value="15% Scheduled">15% Scheduled</option>
@@ -930,7 +1027,9 @@ export default function MarketingDashboard({ onBackToDashboard }) {
                 <textarea
                   rows="3"
                   value={createForm.remarks}
-                  onChange={(e) => setCreateForm((prev) => ({ ...prev, remarks: e.target.value }))}
+                  onChange={(e) =>
+                    setCreateForm((prev) => ({ ...prev, remarks: e.target.value }))
+                  }
                   placeholder="e.g. Strong engagement on YouTube bumper ads; recommend extending campaign visibility."
                   className="w-full p-3 rounded-2xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#08D9D6] text-[#252A34]"
                 />
@@ -941,7 +1040,7 @@ export default function MarketingDashboard({ onBackToDashboard }) {
                 <button
                   type="button"
                   onClick={() => setActiveTab('analytics')}
-                  className="px-5 py-3 rounded-2xl border border-gray-300 font-semibold text-gray-700 hover:bg-gray-50"
+                  className="px-5 py-3 rounded-2xl border border-gray-300 font-semibold text-gray-700 hover:bg-gray-50 cursor-pointer"
                 >
                   Cancel
                 </button>
@@ -965,14 +1064,87 @@ export default function MarketingDashboard({ onBackToDashboard }) {
             </form>
           </div>
         )}
+
+        {/* TAB 3: AUDIENCE PERFORMANCE REPORT */}
+        {activeTab === 'report' && (
+          <div className="rounded-[32px] p-6 sm:p-10 bg-white border border-gray-200 shadow-xl space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-gray-100">
+              <div>
+                <h2 className="text-xl font-extrabold text-[#252A34] flex items-center gap-2">
+                  <BarChart2 className="w-5 h-5 text-[#FF2E63]" />
+                  Audience Performance & Campaign Audit
+                </h2>
+                <p className="text-xs font-medium text-gray-500 mt-1">
+                  Overall audience views, CTR analysis, and progress status summary across agency accounts.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => window.print()}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold border border-gray-300 bg-white hover:bg-gray-50 text-[#252A34] cursor-pointer"
+              >
+                <Printer className="w-4 h-4 text-[#08D9D6]" />
+                Print Report
+              </button>
+            </div>
+
+            {/* Performance Metrics Table */}
+            <div className="overflow-x-auto rounded-2xl border border-gray-200">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-gray-100 text-gray-600 font-bold border-b border-gray-200">
+                  <tr>
+                    <th className="py-3 px-3">Analysis #</th>
+                    <th className="py-3 px-3">Campaign</th>
+                    <th className="py-3 px-3">Client</th>
+                    <th className="py-3 px-3">Visibility Interval</th>
+                    <th className="py-3 px-3">Views</th>
+                    <th className="py-3 px-3">Clicks</th>
+                    <th className="py-3 px-3">CTR</th>
+                    <th className="py-3 px-3">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {analyses.map((a) => {
+                    const views = Number(a.campaignViews) || 0;
+                    const clicks = Number(a.clicks) || 0;
+                    const ctr = views > 0 ? ((clicks / views) * 100).toFixed(2) : '0.00';
+                    return (
+                      <tr key={a.analysisId} className="hover:bg-gray-50">
+                        <td className="py-3 px-3 font-bold text-[#252A34]">#{a.analysisId}</td>
+                        <td className="py-3 px-3 font-semibold text-[#252A34]">
+                          {a.campaignName}
+                        </td>
+                        <td className="py-3 px-3">Client #{a.clientId}</td>
+                        <td className="py-3 px-3 text-gray-500">
+                          {a.visibleStartDate || 'N/A'} → {a.visibleEndDate || 'N/A'}
+                        </td>
+                        <td className="py-3 px-3 font-bold text-[#252A34]">
+                          {views.toLocaleString()}
+                        </td>
+                        <td className="py-3 px-3 font-bold text-[#FF2E63]">
+                          {clicks.toLocaleString()}
+                        </td>
+                        <td className="py-3 px-3 font-extrabold text-[#08D9D6]">{ctr}%</td>
+                        <td className="py-3 px-3">
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-gray-100 text-gray-700">
+                            {a.campaignProgress}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
       </main>
 
-      {/* EDIT ANALYSIS MODAL */}
+      {/* MODAL 1: EDIT ANALYSIS MODAL (PUT /api/marketing/analysis/{analysisId}) */}
       {editingAnalysis && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-fade-in">
-          <div
-            className="w-full max-w-lg rounded-3xl p-6 sm:p-7 bg-white border border-gray-200 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto"
-          >
+          <div className="w-full max-w-lg rounded-3xl p-6 sm:p-7 bg-white border border-gray-200 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-3 border-b border-gray-100">
               <div>
                 <h3 className="font-bold text-base text-[#252A34]">
@@ -985,7 +1157,7 @@ export default function MarketingDashboard({ onBackToDashboard }) {
               <button
                 type="button"
                 onClick={() => setEditingAnalysis(null)}
-                className="p-1 rounded-lg text-gray-400 hover:text-gray-600"
+                className="p-1 rounded-lg text-gray-400 hover:text-gray-600 cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -997,7 +1169,9 @@ export default function MarketingDashboard({ onBackToDashboard }) {
                 <input
                   type="text"
                   value={editFormData.campaignName}
-                  onChange={(e) => setEditFormData({ ...editFormData, campaignName: e.target.value })}
+                  onChange={(e) =>
+                    setEditFormData({ ...editFormData, campaignName: e.target.value })
+                  }
                   className="w-full p-2.5 rounded-xl border border-gray-300 focus:outline-none focus:ring-1 focus:ring-[#08D9D6] text-[#252A34]"
                   required
                 />
@@ -1010,7 +1184,9 @@ export default function MarketingDashboard({ onBackToDashboard }) {
                     type="number"
                     min="0"
                     value={editFormData.campaignViews}
-                    onChange={(e) => setEditFormData({ ...editFormData, campaignViews: e.target.value })}
+                    onChange={(e) =>
+                      setEditFormData({ ...editFormData, campaignViews: e.target.value })
+                    }
                     className="w-full p-2.5 rounded-xl border border-gray-300 focus:outline-none focus:ring-1 focus:ring-[#08D9D6] text-[#252A34]"
                   />
                 </div>
@@ -1020,7 +1196,9 @@ export default function MarketingDashboard({ onBackToDashboard }) {
                     type="number"
                     min="0"
                     value={editFormData.clicks}
-                    onChange={(e) => setEditFormData({ ...editFormData, clicks: e.target.value })}
+                    onChange={(e) =>
+                      setEditFormData({ ...editFormData, clicks: e.target.value })
+                    }
                     className="w-full p-2.5 rounded-xl border border-gray-300 focus:outline-none focus:ring-1 focus:ring-[#08D9D6] text-[#252A34]"
                   />
                 </div>
@@ -1032,7 +1210,9 @@ export default function MarketingDashboard({ onBackToDashboard }) {
                   <input
                     type="date"
                     value={editFormData.visibleStartDate || ''}
-                    onChange={(e) => setEditFormData({ ...editFormData, visibleStartDate: e.target.value })}
+                    onChange={(e) =>
+                      setEditFormData({ ...editFormData, visibleStartDate: e.target.value })
+                    }
                     className="w-full p-2.5 rounded-xl border border-gray-300 focus:outline-none focus:ring-1 focus:ring-[#08D9D6] text-[#252A34]"
                   />
                 </div>
@@ -1041,29 +1221,39 @@ export default function MarketingDashboard({ onBackToDashboard }) {
                   <input
                     type="date"
                     value={editFormData.visibleEndDate || ''}
-                    onChange={(e) => setEditFormData({ ...editFormData, visibleEndDate: e.target.value })}
+                    onChange={(e) =>
+                      setEditFormData({ ...editFormData, visibleEndDate: e.target.value })
+                    }
                     className="w-full p-2.5 rounded-xl border border-gray-300 focus:outline-none focus:ring-1 focus:ring-[#08D9D6] text-[#252A34]"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block font-bold text-[#252A34] mb-1">Campaign Progress Description</label>
+                <label className="block font-bold text-[#252A34] mb-1">
+                  Campaign Progress Description
+                </label>
                 <input
                   type="text"
                   value={editFormData.campaignProgress}
-                  onChange={(e) => setEditFormData({ ...editFormData, campaignProgress: e.target.value })}
+                  onChange={(e) =>
+                    setEditFormData({ ...editFormData, campaignProgress: e.target.value })
+                  }
                   placeholder="e.g. 75% In Progress"
                   className="w-full p-2.5 rounded-xl border border-gray-300 focus:outline-none focus:ring-1 focus:ring-[#08D9D6] text-[#252A34]"
                 />
               </div>
 
               <div>
-                <label className="block font-bold text-[#252A34] mb-1">Marketing Analyst Remarks</label>
+                <label className="block font-bold text-[#252A34] mb-1">
+                  Marketing Analyst Remarks
+                </label>
                 <textarea
                   rows="3"
                   value={editFormData.remarks}
-                  onChange={(e) => setEditFormData({ ...editFormData, remarks: e.target.value })}
+                  onChange={(e) =>
+                    setEditFormData({ ...editFormData, remarks: e.target.value })
+                  }
                   className="w-full p-2.5 rounded-xl border border-gray-300 focus:outline-none focus:ring-1 focus:ring-[#08D9D6] text-[#252A34]"
                 />
               </div>
@@ -1072,14 +1262,14 @@ export default function MarketingDashboard({ onBackToDashboard }) {
                 <button
                   type="button"
                   onClick={() => setEditingAnalysis(null)}
-                  className="px-4 py-2 rounded-xl border border-gray-300 text-gray-700 font-medium"
+                  className="px-4 py-2 rounded-xl border border-gray-300 text-gray-700 font-medium cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmittingEdit}
-                  className="px-5 py-2 rounded-xl font-bold text-[#252A34] shadow-xs"
+                  className="px-5 py-2 rounded-xl font-bold text-[#252A34] shadow-xs cursor-pointer"
                   style={{ background: 'linear-gradient(135deg, #08D9D6 0%, #00b4b1 100%)' }}
                 >
                   {isSubmittingEdit ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Save Changes'}
@@ -1090,7 +1280,87 @@ export default function MarketingDashboard({ onBackToDashboard }) {
         </div>
       )}
 
-      {/* DELETE CONFIRMATION MODAL */}
+      {/* MODAL 2: VIEW DETAILS (GET /api/marketing/analysis/{analysisId}) */}
+      {viewingDetails && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-fade-in">
+          <div className="w-full max-w-md rounded-3xl p-6 bg-white border border-gray-200 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-gray-100">
+              <h3 className="font-bold text-base text-[#252A34] flex items-center gap-1.5">
+                <Info className="w-4 h-4 text-[#08D9D6]" />
+                Analysis Record #{viewingDetails.analysisId}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setViewingDetails(null)}
+                className="p-1 rounded-lg text-gray-400 hover:text-gray-600 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-2 text-xs">
+              <div className="flex justify-between py-1 border-b border-gray-100">
+                <span className="text-gray-500">Campaign Name:</span>
+                <span className="font-bold text-[#252A34]">{viewingDetails.campaignName}</span>
+              </div>
+              <div className="flex justify-between py-1 border-b border-gray-100">
+                <span className="text-gray-500">Client ID:</span>
+                <span className="font-bold text-[#252A34]">Client #{viewingDetails.clientId}</span>
+              </div>
+              {viewingDetails.campaignId && (
+                <div className="flex justify-between py-1 border-b border-gray-100">
+                  <span className="text-gray-500">Campaign ID:</span>
+                  <span className="font-bold text-[#252A34]">
+                    #{viewingDetails.campaignId}
+                  </span>
+                </div>
+              )}
+              <div className="flex justify-between py-1 border-b border-gray-100">
+                <span className="text-gray-500">Visible Interval:</span>
+                <span className="font-bold text-[#252A34]">
+                  {viewingDetails.visibleStartDate} → {viewingDetails.visibleEndDate}
+                </span>
+              </div>
+              <div className="flex justify-between py-1 border-b border-gray-100">
+                <span className="text-gray-500">Audience Views:</span>
+                <span className="font-bold text-[#252A34]">
+                  {(Number(viewingDetails.campaignViews) || 0).toLocaleString()}
+                </span>
+              </div>
+              <div className="flex justify-between py-1 border-b border-gray-100">
+                <span className="text-gray-500">Clicks:</span>
+                <span className="font-bold text-[#FF2E63]">
+                  {(Number(viewingDetails.clicks) || 0).toLocaleString()}
+                </span>
+              </div>
+              <div className="flex justify-between py-1 border-b border-gray-100">
+                <span className="text-gray-500">Progress:</span>
+                <span className="font-bold text-[#08D9D6]">
+                  {viewingDetails.campaignProgress}
+                </span>
+              </div>
+              {viewingDetails.remarks && (
+                <div className="pt-2">
+                  <span className="text-gray-500 block mb-1">Analyst Remarks:</span>
+                  <p className="p-2.5 rounded-xl bg-gray-50 text-gray-700 italic">
+                    "{viewingDetails.remarks}"
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setViewingDetails(null)}
+              className="w-full py-2.5 rounded-xl font-bold text-xs text-white bg-[#252A34] hover:bg-[#1a1e26] cursor-pointer"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 3: DELETE CONFIRMATION (DELETE /api/marketing/analysis/{analysisId}) */}
       {deletingId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-fade-in">
           <div className="w-full max-w-sm rounded-3xl p-6 bg-white border border-gray-200 shadow-2xl text-center space-y-4">
@@ -1107,16 +1377,18 @@ export default function MarketingDashboard({ onBackToDashboard }) {
               <button
                 type="button"
                 onClick={() => setDeletingId(null)}
-                className="px-4 py-2 rounded-xl border border-gray-200 text-xs font-semibold text-gray-600"
+                className="px-4 py-2 rounded-xl border border-gray-200 text-xs font-semibold text-gray-600 cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 type="button"
                 onClick={() => handleDelete(deletingId)}
-                className="px-4 py-2 rounded-xl text-xs font-bold text-white shadow-sm bg-[#FF2E63]"
+                disabled={isDeleting}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-white shadow-sm bg-[#FF2E63] flex items-center gap-1.5 cursor-pointer"
               >
-                Confirm Delete
+                {isDeleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+                <span>Confirm Delete</span>
               </button>
             </div>
           </div>

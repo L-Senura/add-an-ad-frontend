@@ -1,12 +1,15 @@
 /**
  * Add-an-Ad Advertising Agency Platform
  * Operations, Client Tasks & Coordinator Task Assignment API Services
- * Matches Spring Boot ClientTaskController (/api/client_tasks),
- * TaskAssignmentController (/api/coordinator_tasks), and
- * TaskTrackingController (/api/employee_tasks).
+ * Matches Spring Boot:
+ * 1. ClientTaskController (/api/client_tasks)
+ * 2. TaskAssignmentController (/api/coordinator_tasks)
+ * 3. TaskTrackingController (/api/employee_tasks)
  */
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
+const TASKS_STORAGE_KEY = 'add_an_ad_operations_tasks';
+const EMPLOYEES_STORAGE_KEY = 'add_an_ad_operations_employees';
 
 // Sample Production Staff Members for offline/local simulation and fallback
 export const SAMPLE_EMPLOYEES = [
@@ -84,21 +87,21 @@ export const SAMPLE_EMPLOYEES = [
   },
 ];
 
-let demoEmployees = [...SAMPLE_EMPLOYEES];
-
-// Demo Client-submitted & Coordinated Tasks
-let demoTasks = [
+// Initial demo tasks
+export const INITIAL_DEMO_TASKS = [
   {
     id: 1,
     clientId: 1,
     clientName: 'Nova Marketing Agency',
     campaignId: 1,
     taskTitle: 'Design Instagram Story Ad Carousel & Banners',
-    taskDetails: 'Need 5 high-converting vertical 1080x1920 story slides for summer sale discount blitz with bold CTA buttons.',
+    taskDetails:
+      'Need 5 high-converting vertical 1080x1920 story slides for summer sale discount blitz with bold CTA buttons.',
     taskCategory: 'Graphic Design',
     priority: 'HIGH',
     taskManagerId: 1,
-    coordinatorNotes: 'Follow brand style guide with soft rose and deep slate blue accents. Ensure mobile readability.',
+    coordinatorNotes:
+      'Follow brand style guide with soft rose and deep slate blue accents. Ensure mobile readability.',
     employeeId: 1,
     employeeName: 'Sarah Jenkins',
     status: 'In Progress',
@@ -114,11 +117,13 @@ let demoTasks = [
     clientName: 'Nova Marketing Agency',
     campaignId: 1,
     taskTitle: '15-Second YouTube Bumper Promo Reel',
-    taskDetails: 'Produce a punchy 15s bumper ad showcasing client mobile app features with sound design and upbeat music.',
+    taskDetails:
+      'Produce a punchy 15s bumper ad showcasing client mobile app features with sound design and upbeat music.',
     taskCategory: 'Video Production',
     priority: 'URGENT',
     taskManagerId: 1,
-    coordinatorNotes: 'First 3 seconds must have instant hook and sound effects. Render in 4K and 1080p.',
+    coordinatorNotes:
+      'First 3 seconds must have instant hook and sound effects. Render in 4K and 1080p.',
     employeeId: 2,
     employeeName: 'Liam Torres',
     status: 'ASSIGNED',
@@ -134,7 +139,8 @@ let demoTasks = [
     clientName: 'Nova Marketing Agency',
     campaignId: 2,
     taskTitle: 'Catchy Campaign Slogans & Ad Copywriting',
-    taskDetails: 'Deliver 10 headline variations and short-form ad copies for Google search ads and LinkedIn sponsored feed.',
+    taskDetails:
+      'Deliver 10 headline variations and short-form ad copies for Google search ads and LinkedIn sponsored feed.',
     taskCategory: 'Copywriting',
     priority: 'MEDIUM',
     taskManagerId: null,
@@ -154,7 +160,8 @@ let demoTasks = [
     clientName: 'OmniVanguard Digital',
     campaignId: 3,
     taskTitle: 'Promotional Product Landing Page Optimization',
-    taskDetails: 'Optimize conversion funnels, fix responsiveness on tablet layouts, and integrate analytics pixel.',
+    taskDetails:
+      'Optimize conversion funnels, fix responsiveness on tablet layouts, and integrate analytics pixel.',
     taskCategory: 'Web Development',
     priority: 'HIGH',
     taskManagerId: 1,
@@ -170,11 +177,109 @@ let demoTasks = [
   },
 ];
 
-let nextTaskId = 5;
-let nextEmployeeId = 5;
+function getStoredTasks() {
+  try {
+    const raw = localStorage.getItem(TASKS_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+  } catch (e) {
+    console.warn('Failed to parse stored tasks:', e);
+  }
+  return [...INITIAL_DEMO_TASKS];
+}
+
+function saveStoredTasks(list) {
+  try {
+    localStorage.setItem(TASKS_STORAGE_KEY, JSON.stringify(list));
+  } catch (e) {
+    console.warn('Failed to save tasks to localStorage:', e);
+  }
+}
+
+function getStoredEmployees() {
+  try {
+    const raw = localStorage.getItem(EMPLOYEES_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+  } catch (e) {
+    console.warn('Failed to parse stored employees:', e);
+  }
+  return [...SAMPLE_EMPLOYEES];
+}
+
+function saveStoredEmployees(list) {
+  try {
+    localStorage.setItem(EMPLOYEES_STORAGE_KEY, JSON.stringify(list));
+  } catch (e) {
+    console.warn('Failed to save employees to localStorage:', e);
+  }
+}
+
+let demoTasks = getStoredTasks();
+let demoEmployees = getStoredEmployees();
+
+async function request(endpoint, options = {}) {
+  const url = `${API_BASE_URL}${endpoint}`;
+  const defaultHeaders = {
+    'Content-Type': 'application/json',
+    Accept: 'application/json',
+  };
+
+  const config = {
+    ...options,
+    credentials: 'include',
+    headers: {
+      ...defaultHeaders,
+      ...options.headers,
+    },
+  };
+
+  try {
+    const response = await fetch(url, config);
+    const contentType = response.headers.get('content-type');
+    let data;
+
+    if (contentType && contentType.includes('application/json')) {
+      data = await response.json();
+    } else {
+      const text = await response.text();
+      try {
+        data = JSON.parse(text);
+      } catch {
+        data = text;
+      }
+    }
+
+    if (!response.ok) {
+      const errorMessage =
+        (typeof data === 'object' && (data?.message || data?.error)) ||
+        (typeof data === 'string' && data) ||
+        `Request failed with status ${response.status}`;
+      const error = new Error(errorMessage);
+      error.status = response.status;
+      error.data = data;
+      throw error;
+    }
+
+    return data;
+  } catch (err) {
+    if (err.name === 'TypeError' && err.message.includes('Failed to fetch')) {
+      const connectionError = new Error(
+        'Backend server not connected; running in local operations storage mode.'
+      );
+      connectionError.isNetworkError = true;
+      throw connectionError;
+    }
+    throw err;
+  }
+}
 
 // =========================================================================
-// 1. CLIENT TASK ENDPOINTS (/api/client_tasks)
+// 1. CLIENT TASK ENDPOINTS (/api/client_tasks) - ClientTaskController
 // =========================================================================
 
 /**
@@ -182,35 +287,31 @@ let nextEmployeeId = 5;
  * POST /api/client_tasks/submit
  */
 export async function submitClientTask(taskData) {
-  try {
-    const response = await fetch(`${API_BASE_URL}/api/client_tasks/submit`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(taskData),
-    });
-    if (response.ok) {
-      return await response.json();
-    }
-    const errText = await response.text();
-    throw new Error(errText || 'Failed to submit client task');
-  } catch (err) {
-    console.warn('Backend unavailable, submitting task locally:', err.message);
+  const payload = {
+    clientId: Number(taskData.clientId),
+    clientName: taskData.clientName || 'Agency Client',
+    campaignId: taskData.campaignId ? Number(taskData.campaignId) : null,
+    taskTitle: taskData.taskTitle?.trim(),
+    taskDetails: taskData.taskDetails?.trim(),
+    taskCategory: taskData.taskCategory || 'General Marketing',
+    priority: taskData.priority || 'MEDIUM',
+    clientDeadline: taskData.clientDeadline || null,
+  };
 
+  try {
+    return await request('/api/client_tasks/submit', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  } catch {
     const newTask = {
-      id: nextTaskId++,
-      clientId: Number(taskData.clientId),
-      clientName: taskData.clientName || 'Agency Client',
-      campaignId: taskData.campaignId ? Number(taskData.campaignId) : null,
-      taskTitle: taskData.taskTitle,
-      taskDetails: taskData.taskDetails,
-      taskCategory: taskData.taskCategory || 'General Marketing',
-      priority: taskData.priority || 'MEDIUM',
+      id: Date.now(),
+      ...payload,
       taskManagerId: null,
       coordinatorNotes: null,
       employeeId: null,
       employeeName: null,
       status: 'PENDING_COORDINATION',
-      clientDeadline: taskData.clientDeadline || null,
       deadline: null,
       createdAt: new Date().toISOString(),
       coordinatedAt: null,
@@ -218,6 +319,7 @@ export async function submitClientTask(taskData) {
     };
 
     demoTasks.unshift(newTask);
+    saveStoredTasks(demoTasks);
     return newTask;
   }
 }
@@ -228,34 +330,44 @@ export async function submitClientTask(taskData) {
  */
 export async function getClientTasks(clientId) {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/client_tasks/client/${clientId}`);
-    if (response.ok) {
-      return await response.json();
-    }
-  } catch (err) {
-    console.warn(`Backend unavailable, retrieving local tasks for client #${clientId}:`, err.message);
+    const data = await request(`/api/client_tasks/client/${clientId}`);
+    return Array.isArray(data) ? data : [];
+  } catch {
+    return demoTasks.filter((t) => Number(t.clientId) === Number(clientId));
   }
-
-  return demoTasks.filter((t) => Number(t.clientId) === Number(clientId));
 }
 
 /**
- * Retrieve tasks submitted by a client filtered by status.
+ * Retrieve all tasks submitted by a client filtered by status.
  * GET /api/client_tasks/client/{clientId}/status/{status}
  */
 export async function getClientTasksByStatus(clientId, status) {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/client_tasks/client/${clientId}/status/${status}`);
-    if (response.ok) {
-      return await response.json();
-    }
-  } catch (err) {
-    console.warn('Backend unavailable, filtering local client tasks by status:', err.message);
+    const data = await request(
+      `/api/client_tasks/client/${clientId}/status/${encodeURIComponent(status)}`
+    );
+    return Array.isArray(data) ? data : [];
+  } catch {
+    return demoTasks.filter(
+      (t) =>
+        Number(t.clientId) === Number(clientId) &&
+        t.status?.toLowerCase() === status.toLowerCase()
+    );
   }
+}
 
-  return demoTasks.filter(
-    (t) => Number(t.clientId) === Number(clientId) && t.status?.toLowerCase() === status.toLowerCase()
-  );
+/**
+ * View details and current progress of a specific task submitted by a client.
+ * GET /api/client_tasks/{taskId}
+ */
+export async function getTaskDetails(taskId) {
+  try {
+    return await request(`/api/client_tasks/${taskId}`);
+  } catch {
+    const task = demoTasks.find((t) => Number(t.id) === Number(taskId));
+    if (!task) throw new Error(`Task with ID ${taskId} not found.`);
+    return task;
+  }
 }
 
 /**
@@ -264,71 +376,43 @@ export async function getClientTasksByStatus(clientId, status) {
  */
 export async function cancelClientTask(taskId) {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/client_tasks/${taskId}/cancel`, {
+    return await request(`/api/client_tasks/${taskId}/cancel`, {
       method: 'PUT',
     });
-    if (response.ok) {
-      return await response.json();
-    }
-    const errText = await response.text();
-    throw new Error(errText || 'Failed to cancel task');
-  } catch (err) {
-    console.warn(`Backend unavailable, cancelling local task #${taskId}:`, err.message);
-
+  } catch {
     const task = demoTasks.find((t) => Number(t.id) === Number(taskId));
-    if (!task) throw new Error(`Task #${taskId} not found.`);
-    if (task.status === 'Completed') throw new Error('Cannot cancel a task that has already been completed.');
+    if (!task) throw new Error(`Task with ID ${taskId} not found.`);
+    if (String(task.status).toLowerCase() === 'completed') {
+      throw new Error('Cannot cancel a task that has already been completed.');
+    }
 
     task.status = 'Cancelled';
+    saveStoredTasks(demoTasks);
     return task;
   }
 }
 
 // =========================================================================
-// 2. TASK COORDINATOR ENDPOINTS (/api/coordinator_tasks)
+// 2. TASK COORDINATOR ENDPOINTS (/api/coordinator_tasks) - TaskAssignmentController
 // =========================================================================
 
 /**
- * Retrieve available Production Staff and their current workload before assignment.
- * GET /api/coordinator_tasks/available_employees
+ * Retrieve available Production Staff and their current workload.
+ * GET /api/coordinator_tasks/available_employees (also /employees)
  */
 export async function getAvailableEmployees() {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/coordinator_tasks/available_employees`);
-    if (response.ok) {
-      const data = await response.json();
-      if (Array.isArray(data) && data.length > 0) {
-        return data;
-      }
-      // If backend table is empty, auto-seed with sample production staff
-      console.info('Backend production_staff table is empty. Auto-seeding sample employees...');
-      const seeded = [];
-      for (const emp of SAMPLE_EMPLOYEES) {
-        try {
-          const res = await fetch(`${API_BASE_URL}/api/coordinator_tasks/employees`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              name: emp.name,
-              email: emp.email,
-              role: emp.role,
-              contactNumber: emp.contactNumber,
-              currentWorkload: 0,
-              maxWorkload: emp.maxWorkload || 5,
-              status: emp.status || 'AVAILABLE',
-            }),
-          });
-          if (res.ok) {
-            seeded.push(await res.json());
-          }
-        } catch {
-          // ignore individual seed error
-        }
-      }
-      if (seeded.length > 0) return seeded;
-    }
-  } catch (err) {
-    console.warn('Backend unavailable, returning sample employee list:', err.message);
+    const data = await request('/api/coordinator_tasks/available_employees');
+    if (Array.isArray(data) && data.length > 0) return data;
+  } catch {
+    // fallback
+  }
+
+  try {
+    const data = await request('/api/coordinator_tasks/employees');
+    if (Array.isArray(data) && data.length > 0) return data;
+  } catch {
+    // fallback
   }
 
   return [...demoEmployees];
@@ -339,199 +423,203 @@ export async function getAvailableEmployees() {
  * POST /api/coordinator_tasks/employees
  */
 export async function addEmployee(employeeData) {
-  try {
-    const response = await fetch(`${API_BASE_URL}/api/coordinator_tasks/employees`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(employeeData),
-    });
-    if (response.ok) {
-      return await response.json();
-    }
-    const errText = await response.text();
-    throw new Error(errText || 'Failed to add employee');
-  } catch (err) {
-    if (!err.message?.includes('Failed to fetch') && !err.message?.includes('NetworkError')) {
-      throw err;
-    }
-    console.warn('Backend unavailable, adding local employee:', err.message);
-  }
-
-  const newEmp = {
-    id: nextEmployeeId++,
+  const payload = {
     adminId: employeeData.adminId ? Number(employeeData.adminId) : null,
-    name: employeeData.name,
-    email: employeeData.email,
+    name: employeeData.name?.trim(),
+    email: employeeData.email?.trim(),
     role: employeeData.role || 'Production Staff',
+    department: employeeData.department || 'Production Team',
     contactNumber: employeeData.contactNumber || '',
     currentWorkload: 0,
     maxWorkload: employeeData.maxWorkload ? Number(employeeData.maxWorkload) : 5,
-    status: 'AVAILABLE',
+    status: employeeData.status || 'AVAILABLE',
   };
 
-  demoEmployees.push(newEmp);
-  return newEmp;
+  try {
+    return await request('/api/coordinator_tasks/employees', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  } catch {
+    const newEmp = {
+      id: Date.now(),
+      ...payload,
+    };
+    demoEmployees.push(newEmp);
+    saveStoredEmployees(demoEmployees);
+    return newEmp;
+  }
 }
 
 /**
  * Retrieve all tasks given/submitted by clients.
- * GET /api/coordinator_tasks/client-tasks?status=...
+ * Optionally filter by status.
+ * GET /api/coordinator_tasks/client-tasks?status={status}
  */
 export async function getAllClientTasks(status) {
+  const query =
+    status && status !== 'ALL' ? `?status=${encodeURIComponent(status)}` : '';
   try {
-    const url = status && status !== 'ALL'
-      ? `${API_BASE_URL}/api/coordinator_tasks/client-tasks?status=${encodeURIComponent(status)}`
-      : `${API_BASE_URL}/api/coordinator_tasks/client-tasks`;
-    const response = await fetch(url);
-    if (response.ok) {
-      const data = await response.json();
-      if (Array.isArray(data) && data.length > 0) {
-        return data;
-      }
-    }
-  } catch (err) {
-    console.warn('Backend unavailable, returning local client tasks:', err.message);
+    const data = await request(`/api/coordinator_tasks/client-tasks${query}`);
+    if (Array.isArray(data)) return data;
+  } catch {
+    // fallback
   }
 
   if (status && status !== 'ALL') {
-    return demoTasks.filter((t) => t.status?.toLowerCase() === status.toLowerCase());
+    return demoTasks.filter(
+      (t) => String(t.status).toLowerCase() === status.toLowerCase()
+    );
   }
   return [...demoTasks];
 }
 
 /**
- * Retrieve all unassigned client tasks awaiting coordination.
+ * Retrieve all tasks given by clients awaiting coordination (unassigned).
  * GET /api/coordinator_tasks/unassigned
  */
 export async function getUnassignedClientTasks() {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/coordinator_tasks/unassigned`);
-    if (response.ok) {
-      const data = await response.json();
-      if (Array.isArray(data) && data.length > 0) {
-        return data;
-      }
-    }
-  } catch (err) {
-    console.warn('Backend unavailable, returning unassigned local tasks:', err.message);
+    const data = await request('/api/coordinator_tasks/unassigned');
+    if (Array.isArray(data)) return data;
+  } catch {
+    // fallback
   }
 
-  return demoTasks.filter((t) => !t.employeeId || t.status === 'PENDING_COORDINATION');
+  return demoTasks.filter(
+    (t) => !t.employeeId || t.status === 'PENDING_COORDINATION'
+  );
+}
+
+/**
+ * Retrieve all tasks given by a specific client for coordinator.
+ * GET /api/coordinator_tasks/client/{clientId}
+ */
+export async function getCoordinatorTasksByClient(clientId) {
+  try {
+    const data = await request(`/api/coordinator_tasks/client/${clientId}`);
+    if (Array.isArray(data)) return data;
+  } catch {
+    // fallback
+  }
+  return demoTasks.filter((t) => Number(t.clientId) === Number(clientId));
 }
 
 /**
  * Task Coordinator coordinates a client's task among employees.
+ * Assigns employee, deadline, priority, coordinator notes, sets status to ASSIGNED.
  * PUT /api/coordinator_tasks/{taskId}/coordinate
  */
 export async function coordinateTask(taskId, coordinationData) {
   const payload = {
-    coordinatorId: coordinationData.coordinatorId ? Number(coordinationData.coordinatorId) : null,
     employeeId: Number(coordinationData.employeeId),
-    deadline: coordinationData.deadline && String(coordinationData.deadline).trim() !== '' ? coordinationData.deadline : null,
+    coordinatorId: coordinationData.coordinatorId
+      ? Number(coordinationData.coordinatorId)
+      : null,
+    deadline: coordinationData.deadline || null,
     priority: coordinationData.priority || 'MEDIUM',
     coordinatorNotes: coordinationData.coordinatorNotes || '',
   };
 
   try {
-    const response = await fetch(`${API_BASE_URL}/api/coordinator_tasks/${taskId}/coordinate`, {
+    return await request(`/api/coordinator_tasks/${taskId}/coordinate`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    if (response.ok) {
-      return await response.json();
-    }
-    const errText = await response.text();
-    throw new Error(errText || 'Failed to coordinate task');
-  } catch (err) {
-    if (!err.message?.includes('Failed to fetch') && !err.message?.includes('NetworkError')) {
-      throw err;
-    }
-    console.warn(`Backend unavailable, coordinating local task #${taskId}:`, err.message);
-
+  } catch {
     const task = demoTasks.find((t) => Number(t.id) === Number(taskId));
-    if (!task) throw new Error(`Task #${taskId} not found.`);
+    if (!task) throw new Error(`Task with ID ${taskId} not found.`);
 
-    const employee = demoEmployees.find((e) => Number(e.id) === Number(coordinationData.employeeId));
-    if (!employee) throw new Error(`Employee #${coordinationData.employeeId} not found.`);
+    const employee = demoEmployees.find(
+      (e) => Number(e.id) === Number(coordinationData.employeeId)
+    );
+    if (!employee) {
+      throw new Error(`Employee with ID ${coordinationData.employeeId} not found.`);
+    }
 
-    // If reassigning, decrement previous employee's workload
+    // Decrement previous employee workload if reassigning
     if (task.employeeId && Number(task.employeeId) !== Number(employee.id)) {
-      const oldEmp = demoEmployees.find((e) => Number(e.id) === Number(task.employeeId));
+      const oldEmp = demoEmployees.find(
+        (e) => Number(e.id) === Number(task.employeeId)
+      );
       if (oldEmp && oldEmp.currentWorkload > 0) {
         oldEmp.currentWorkload--;
         if (oldEmp.currentWorkload < oldEmp.maxWorkload) oldEmp.status = 'AVAILABLE';
       }
     }
 
-    // Increment assigned employee's workload
+    // Increment new employee workload
     if (!task.employeeId || Number(task.employeeId) !== Number(employee.id)) {
-      employee.currentWorkload++;
-      if (employee.currentWorkload >= employee.maxWorkload) {
+      employee.currentWorkload = (employee.currentWorkload || 0) + 1;
+      if (employee.currentWorkload >= (employee.maxWorkload || 5)) {
         employee.status = 'BUSY';
       }
     }
 
     task.employeeId = employee.id;
     task.employeeName = employee.name;
-    if (coordinationData.coordinatorId) task.taskManagerId = Number(coordinationData.coordinatorId);
+    if (payload.coordinatorId) task.taskManagerId = payload.coordinatorId;
     if (payload.deadline) task.deadline = payload.deadline;
-    if (coordinationData.priority) task.priority = coordinationData.priority;
-    if (coordinationData.coordinatorNotes) task.coordinatorNotes = coordinationData.coordinatorNotes;
+    if (payload.priority) task.priority = payload.priority;
+    if (payload.coordinatorNotes) task.coordinatorNotes = payload.coordinatorNotes;
     task.status = 'ASSIGNED';
     task.coordinatedAt = new Date().toISOString();
 
+    saveStoredTasks(demoTasks);
+    saveStoredEmployees(demoEmployees);
     return task;
   }
 }
 
 /**
  * Coordinator reassigns an existing task from one employee to another.
- * PUT /api/coordinator_tasks/{taskId}/reassign/{newEmployeeId}?reason=...
+ * PUT /api/coordinator_tasks/{taskId}/reassign/{newEmployeeId}?reason={reason}
  */
 export async function reassignTask(taskId, newEmployeeId, reason = '') {
+  const query = reason ? `?reason=${encodeURIComponent(reason)}` : '';
   try {
-    const url = reason
-      ? `${API_BASE_URL}/api/coordinator_tasks/${taskId}/reassign/${newEmployeeId}?reason=${encodeURIComponent(reason)}`
-      : `${API_BASE_URL}/api/coordinator_tasks/${taskId}/reassign/${newEmployeeId}`;
-    const response = await fetch(url, { method: 'PUT' });
-    if (response.ok) {
-      return await response.json();
+    return await request(
+      `/api/coordinator_tasks/${taskId}/reassign/${newEmployeeId}${query}`,
+      {
+        method: 'PUT',
+      }
+    );
+  } catch {
+    const task = demoTasks.find((t) => Number(t.id) === Number(taskId));
+    if (!task) throw new Error(`Task with ID ${taskId} not found.`);
+
+    const newEmp = demoEmployees.find(
+      (e) => Number(e.id) === Number(newEmployeeId)
+    );
+    if (!newEmp) throw new Error(`Employee with ID ${newEmployeeId} not found.`);
+
+    // Decrement old employee
+    if (task.employeeId) {
+      const oldEmp = demoEmployees.find(
+        (e) => Number(e.id) === Number(task.employeeId)
+      );
+      if (oldEmp && oldEmp.currentWorkload > 0) {
+        oldEmp.currentWorkload--;
+        if (oldEmp.currentWorkload < oldEmp.maxWorkload) oldEmp.status = 'AVAILABLE';
+      }
     }
-    const errText = await response.text();
-    throw new Error(errText || 'Failed to reassign task');
-  } catch (err) {
-    if (!err.message?.includes('Failed to fetch') && !err.message?.includes('NetworkError')) {
-      throw err;
+
+    newEmp.currentWorkload = (newEmp.currentWorkload || 0) + 1;
+    if (newEmp.currentWorkload >= (newEmp.maxWorkload || 5)) newEmp.status = 'BUSY';
+
+    task.employeeId = newEmp.id;
+    task.employeeName = newEmp.name;
+    task.coordinatedAt = new Date().toISOString();
+    if (reason) {
+      task.coordinatorNotes =
+        (task.coordinatorNotes ? task.coordinatorNotes + '\n' : '') +
+        `[Reassigned: ${reason}]`;
     }
-    console.warn(`Backend unavailable, reassigning local task #${taskId}:`, err.message);
+
+    saveStoredTasks(demoTasks);
+    saveStoredEmployees(demoEmployees);
+    return task;
   }
-
-  const task = demoTasks.find((t) => Number(t.id) === Number(taskId));
-  if (!task) throw new Error(`Task #${taskId} not found.`);
-
-  const newEmp = demoEmployees.find((e) => Number(e.id) === Number(newEmployeeId));
-  if (!newEmp) throw new Error(`New employee #${newEmployeeId} not found.`);
-
-  if (task.employeeId) {
-    const oldEmp = demoEmployees.find((e) => Number(e.id) === Number(task.employeeId));
-    if (oldEmp && oldEmp.currentWorkload > 0) {
-      oldEmp.currentWorkload--;
-      if (oldEmp.currentWorkload < oldEmp.maxWorkload) oldEmp.status = 'AVAILABLE';
-    }
-  }
-
-  newEmp.currentWorkload++;
-  if (newEmp.currentWorkload >= newEmp.maxWorkload) newEmp.status = 'BUSY';
-
-  task.employeeId = newEmp.id;
-  task.employeeName = newEmp.name;
-  task.coordinatedAt = new Date().toISOString();
-  if (reason) {
-    task.coordinatorNotes = (task.coordinatorNotes ? task.coordinatorNotes + '\n' : '') + `[Reassigned: ${reason}]`;
-  }
-
-  return task;
 }
 
 /**
@@ -540,32 +628,72 @@ export async function reassignTask(taskId, newEmployeeId, reason = '') {
  */
 export async function getCoordinationSummary() {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/coordinator_tasks/coordination-summary`);
-    if (response.ok) {
-      return await response.json();
-    }
-  } catch (err) {
-    console.warn('Backend unavailable, calculating local coordination summary:', err.message);
+    return await request('/api/coordinator_tasks/coordination-summary');
+  } catch {
+    const unassigned = demoTasks.filter(
+      (t) => !t.employeeId || t.status === 'PENDING_COORDINATION'
+    ).length;
+    const inProgress = demoTasks.filter(
+      (t) =>
+        t.status === 'In Progress' ||
+        t.status === 'ASSIGNED' ||
+        t.status === 'To Do'
+    ).length;
+    const completed = demoTasks.filter((t) => t.status === 'Completed').length;
+    const pendingCoord = demoTasks.filter(
+      (t) => t.status === 'PENDING_COORDINATION'
+    ).length;
+
+    return {
+      totalClientTasks: demoTasks.length,
+      unassignedTasksAwaitingCoordination: unassigned,
+      pendingCoordinationTasks: pendingCoord,
+      inProgressTasks: inProgress,
+      completedTasks: completed,
+      totalEmployees: demoEmployees.length,
+      employees: [...demoEmployees],
+    };
   }
+}
 
-  const unassigned = demoTasks.filter((t) => !t.employeeId || t.status === 'PENDING_COORDINATION').length;
-  const inProgress = demoTasks.filter((t) => t.status === 'In Progress' || t.status === 'ASSIGNED' || t.status === 'To Do').length;
-  const completed = demoTasks.filter((t) => t.status === 'Completed').length;
-  const pendingCoord = demoTasks.filter((t) => t.status === 'PENDING_COORDINATION').length;
+/**
+ * Legacy / Campaign creation endpoints preserved for compatibility:
+ */
+export async function createCampaignTask(coordinatorId, campaignId, taskData) {
+  try {
+    return await request(
+      `/api/coordinator_tasks/${coordinatorId}/campaign/${campaignId}/create`,
+      {
+        method: 'POST',
+        body: JSON.stringify(taskData),
+      }
+    );
+  } catch {
+    const newTask = {
+      id: Date.now(),
+      taskManagerId: Number(coordinatorId),
+      campaignId: Number(campaignId),
+      status: taskData.status || 'To Do',
+      ...taskData,
+    };
+    demoTasks.unshift(newTask);
+    saveStoredTasks(demoTasks);
+    return newTask;
+  }
+}
 
-  return {
-    totalClientTasks: demoTasks.length,
-    unassignedTasksAwaitingCoordination: unassigned,
-    pendingCoordinationTasks: pendingCoord,
-    inProgressTasks: inProgress,
-    completedTasks: completed,
-    totalEmployees: demoEmployees.length,
-    employees: [...demoEmployees],
-  };
+export async function getTasksByCampaign(campaignId) {
+  try {
+    const data = await request(`/api/coordinator_tasks/campaign/${campaignId}`);
+    if (Array.isArray(data)) return data;
+  } catch {
+    // fallback
+  }
+  return demoTasks.filter((t) => Number(t.campaignId) === Number(campaignId));
 }
 
 // =========================================================================
-// 3. EMPLOYEE PRODUCTION STAFF TASK TRACKING (/api/employee_tasks)
+// 3. EMPLOYEE PRODUCTION STAFF TASK TRACKING (/api/employee_tasks) - TaskTrackingController
 // =========================================================================
 
 /**
@@ -574,42 +702,72 @@ export async function getCoordinationSummary() {
  */
 export async function getEmployeeAssignedTasks(employeeId) {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/employee_tasks/${employeeId}`);
-    if (response.ok) {
-      return await response.json();
-    }
-  } catch (err) {
-    console.warn(`Backend unavailable, retrieving local tasks for employee #${employeeId}:`, err.message);
+    const data = await request(`/api/employee_tasks/${employeeId}`);
+    if (Array.isArray(data)) return data;
+  } catch {
+    // fallback
   }
-
   return demoTasks.filter((t) => Number(t.employeeId) === Number(employeeId));
 }
 
 /**
+ * Employee views only pending or active tasks (not yet completed).
+ * GET /api/employee_tasks/{employeeId}/pending
+ */
+export async function getEmployeePendingTasks(employeeId) {
+  try {
+    const data = await request(`/api/employee_tasks/${employeeId}/pending`);
+    if (Array.isArray(data)) return data;
+  } catch {
+    // fallback
+  }
+  return demoTasks.filter(
+    (t) =>
+      Number(t.employeeId) === Number(employeeId) &&
+      t.status?.toLowerCase() !== 'completed' &&
+      t.status?.toLowerCase() !== 'cancelled'
+  );
+}
+
+/**
+ * Employee views their completed tasks.
+ * GET /api/employee_tasks/{employeeId}/completed
+ */
+export async function getEmployeeCompletedTasks(employeeId) {
+  try {
+    const data = await request(`/api/employee_tasks/${employeeId}/completed`);
+    if (Array.isArray(data)) return data;
+  } catch {
+    // fallback
+  }
+  return demoTasks.filter(
+    (t) =>
+      Number(t.employeeId) === Number(employeeId) &&
+      t.status?.toLowerCase() === 'completed'
+  );
+}
+
+/**
  * Employee updates status of an assigned task (e.g. "To Do" -> "In Progress" -> "Completed").
- * PUT /api/employee_tasks/{employeeId}/{taskId}/status?status=...
+ * PUT /api/employee_tasks/{employeeId}/{taskId}/status?status={status}
  */
 export async function updateTaskStatus(employeeId, taskId, status) {
   try {
-    const response = await fetch(
-      `${API_BASE_URL}/api/employee_tasks/${employeeId}/${taskId}/status?status=${encodeURIComponent(status)}`,
+    return await request(
+      `/api/employee_tasks/${employeeId}/${taskId}/status?status=${encodeURIComponent(status)}`,
       { method: 'PUT' }
     );
-    if (response.ok) {
-      return await response.json();
-    }
-    const errText = await response.text();
-    throw new Error(errText || 'Failed to update task status');
-  } catch (err) {
-    console.warn(`Backend unavailable, updating local task status #${taskId}:`, err.message);
-
+  } catch {
     const task = demoTasks.find((t) => Number(t.id) === Number(taskId));
-    if (!task) throw new Error(`Task #${taskId} not found.`);
+    if (!task) throw new Error(`Task with ID ${taskId} not found.`);
 
     const oldStatus = task.status;
     task.status = status;
 
-    if (status.toLowerCase() === 'completed' && oldStatus.toLowerCase() !== 'completed') {
+    if (
+      status.toLowerCase() === 'completed' &&
+      oldStatus.toLowerCase() !== 'completed'
+    ) {
       task.completedAt = new Date().toISOString();
       const emp = demoEmployees.find((e) => Number(e.id) === Number(employeeId));
       if (emp && emp.currentWorkload > 0) {
@@ -620,30 +778,42 @@ export async function updateTaskStatus(employeeId, taskId, status) {
       }
     }
 
+    saveStoredTasks(demoTasks);
+    saveStoredEmployees(demoEmployees);
     return task;
   }
 }
 
 /**
+ * Employee checks their own profile, assigned role, availability, and active workload.
+ * GET /api/employee_tasks/profile/{employeeId}
+ */
+export async function getEmployeeProfile(employeeId) {
+  try {
+    return await request(`/api/employee_tasks/profile/${employeeId}`);
+  } catch {
+    const emp = demoEmployees.find((e) => Number(e.id) === Number(employeeId));
+    if (!emp) throw new Error(`Employee with ID ${employeeId} not found.`);
+    return emp;
+  }
+}
+
+/**
  * Employee updates availability status ("AVAILABLE", "BUSY", "ON_LEAVE").
- * PUT /api/employee_tasks/{employeeId}/availability?status=...
+ * PUT /api/employee_tasks/{employeeId}/availability?status={status}
  */
 export async function updateEmployeeAvailability(employeeId, status) {
   try {
-    const response = await fetch(
-      `${API_BASE_URL}/api/employee_tasks/${employeeId}/availability?status=${encodeURIComponent(status)}`,
+    return await request(
+      `/api/employee_tasks/${employeeId}/availability?status=${encodeURIComponent(status)}`,
       { method: 'PUT' }
     );
-    if (response.ok) {
-      return await response.json();
-    }
-  } catch (err) {
-    console.warn(`Backend unavailable, updating local employee #${employeeId} availability:`, err.message);
+  } catch {
+    const emp = demoEmployees.find((e) => Number(e.id) === Number(employeeId));
+    if (!emp) throw new Error(`Employee with ID ${employeeId} not found.`);
+
+    emp.status = status.toUpperCase();
+    saveStoredEmployees(demoEmployees);
+    return emp;
   }
-
-  const emp = demoEmployees.find((e) => Number(e.id) === Number(employeeId));
-  if (!emp) throw new Error(`Employee #${employeeId} not found.`);
-
-  emp.status = status.toUpperCase();
-  return emp;
 }

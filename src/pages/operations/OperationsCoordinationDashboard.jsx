@@ -46,7 +46,11 @@ export default function OperationsCoordinationDashboard({ onBackToDashboard }) {
   const [categoryFilter, setCategoryFilter] = useState('ALL');
   const [priorityFilter, setPriorityFilter] = useState('ALL');
   const [staffFilter, setStaffFilter] = useState('ALL');
+  const [clientFilter, setClientFilter] = useState('ALL');
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Workbench sub-tab filter: 'ALL' | 'PENDING' | 'COMPLETED'
+  const [workbenchFilter, setWorkbenchFilter] = useState('ALL');
 
   // Coordination Modal State
   const [coordinatingTask, setCoordinatingTask] = useState(null);
@@ -300,7 +304,16 @@ export default function OperationsCoordinationDashboard({ onBackToDashboard }) {
     return ts === tf;
   };
 
-  // Filter tasks across status, category, priority, employee, and text query
+  // Extract unique clients who have submitted tasks for the client filter
+  const uniqueClients = Array.from(
+    new Map(
+      tasks
+        .filter((t) => t.clientId)
+        .map((t) => [String(t.clientId), { id: t.clientId, name: t.clientName || `Client #${t.clientId}` }])
+    ).values()
+  );
+
+  // Filter tasks across status, category, priority, employee, client, and text query
   const filteredTasks = tasks.filter((t) => {
     const matchesStatus = checkStatusMatch(t, statusFilter);
 
@@ -316,6 +329,10 @@ export default function OperationsCoordinationDashboard({ onBackToDashboard }) {
       staffFilter === 'ALL' ||
       String(t.employeeId || '') === String(staffFilter);
 
+    const matchesClient =
+      clientFilter === 'ALL' ||
+      String(t.clientId || '') === String(clientFilter);
+
     const q = searchQuery.toLowerCase().trim();
     const matchesSearch =
       !q ||
@@ -327,7 +344,7 @@ export default function OperationsCoordinationDashboard({ onBackToDashboard }) {
       String(t.id).includes(q) ||
       String(t.clientId).includes(q);
 
-    return matchesStatus && matchesCategory && matchesPriority && matchesStaff && matchesSearch;
+    return matchesStatus && matchesCategory && matchesPriority && matchesStaff && matchesClient && matchesSearch;
   });
 
   // Dynamic live count calculations for status filter buttons
@@ -368,7 +385,21 @@ export default function OperationsCoordinationDashboard({ onBackToDashboard }) {
   };
 
   const activeEmployee = employees.find((e) => String(e.id) === String(activeStaffId));
-  const staffTasks = tasks.filter((t) => String(t.employeeId) === String(activeStaffId));
+  const rawStaffTasks = tasks.filter((t) => String(t.employeeId) === String(activeStaffId));
+
+  // Staff workbench filter for All vs Pending Execution vs Completed
+  const staffTasks = rawStaffTasks.filter((t) => {
+    if (workbenchFilter === 'PENDING') {
+      return t.status !== 'Completed' && t.status !== 'Cancelled';
+    }
+    if (workbenchFilter === 'COMPLETED') {
+      return t.status === 'Completed';
+    }
+    return true;
+  });
+
+  const staffPendingCount = rawStaffTasks.filter((t) => t.status !== 'Completed' && t.status !== 'Cancelled').length;
+  const staffCompletedCount = rawStaffTasks.filter((t) => t.status === 'Completed').length;
 
   return (
     <div className="min-h-screen bg-[#EAEAEA] py-8 px-4 sm:px-6 lg:px-8">
@@ -674,9 +705,25 @@ export default function OperationsCoordinationDashboard({ onBackToDashboard }) {
                       ))}
                     </select>
                   </div>
+
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-gray-500 font-semibold text-[11px]">Client Brand:</span>
+                    <select
+                      value={clientFilter}
+                      onChange={(e) => setClientFilter(e.target.value)}
+                      className="py-1 px-2.5 rounded-lg border border-gray-200 bg-gray-50 text-gray-700 text-xs focus:outline-none focus:ring-1 focus:ring-[#08D9D6]"
+                    >
+                      <option value="ALL">All Clients ({uniqueClients.length})</option>
+                      {uniqueClients.map((c) => (
+                        <option key={c.id} value={String(c.id)}>
+                          #{c.id} - {c.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
 
-                {(statusFilter !== 'ALL' || categoryFilter !== 'ALL' || priorityFilter !== 'ALL' || staffFilter !== 'ALL' || searchQuery) && (
+                {(statusFilter !== 'ALL' || categoryFilter !== 'ALL' || priorityFilter !== 'ALL' || staffFilter !== 'ALL' || clientFilter !== 'ALL' || searchQuery) && (
                   <button
                     type="button"
                     onClick={() => {
@@ -684,6 +731,7 @@ export default function OperationsCoordinationDashboard({ onBackToDashboard }) {
                       setCategoryFilter('ALL');
                       setPriorityFilter('ALL');
                       setStaffFilter('ALL');
+                      setClientFilter('ALL');
                       setSearchQuery('');
                     }}
                     className="text-[11px] font-bold text-[#FF2E63] hover:underline cursor-pointer flex items-center gap-1"
@@ -1028,11 +1076,126 @@ export default function OperationsCoordinationDashboard({ onBackToDashboard }) {
               </div>
             </div>
 
-            {/* Staff Assigned Tasks */}
-            <div className="mb-4">
-              <h4 className="font-bold text-sm text-[#252A34] mb-2">
-                Tasks Assigned to {activeEmployee?.name || 'Employee'} ({staffTasks.length})
-              </h4>
+            {/* Employee Profile and Availability Widget */}
+            {activeEmployee && (
+              <div
+                className="p-6 rounded-3xl bg-white border shadow-sm mb-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-6"
+                style={{ borderColor: 'rgba(37, 42, 52, 0.12)' }}
+              >
+                <div className="flex items-center gap-4">
+                  <div
+                    className="w-14 h-14 rounded-2xl flex items-center justify-center font-black text-lg text-white shadow-md flex-shrink-0"
+                    style={{ backgroundColor: '#252A34' }}
+                  >
+                    {activeEmployee.name.split(' ').map((n) => n[0]).join('')}
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-lg font-extrabold text-[#252A34]">{activeEmployee.name}</h3>
+                      <span
+                        className="text-[10px] font-extrabold px-2.5 py-0.5 rounded-full uppercase border"
+                        style={{
+                          backgroundColor: activeEmployee.status === 'AVAILABLE' ? 'rgba(8, 217, 214, 0.15)' : '#FFF5F7',
+                          color: activeEmployee.status === 'AVAILABLE' ? '#08D9D6' : '#FF2E63',
+                          borderColor: activeEmployee.status === 'AVAILABLE' ? '#08D9D6' : '#FF2E63',
+                        }}
+                      >
+                        {activeEmployee.status === 'AVAILABLE' ? 'Available for Assignment' : 'On Leave / Unavailable'}
+                      </span>
+                    </div>
+                    <p className="text-xs font-semibold text-gray-500 mt-0.5">
+                      {activeEmployee.role} • {activeEmployee.department || 'Creative Operations'}
+                    </p>
+                    <p className="text-[11px] text-gray-400 mt-0.5">
+                      {activeEmployee.email} • {activeEmployee.contactNumber || 'Contact N/A'}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 w-full md:w-auto justify-between">
+                  {/* Workload Meter */}
+                  <div className="w-full sm:w-44">
+                    <div className="flex items-center justify-between text-xs mb-1">
+                      <span className="font-semibold text-gray-500 text-[11px]">Workload Capacity</span>
+                      <span className="font-bold text-[#252A34] text-[11px]">
+                        {activeEmployee.currentWorkload} / {activeEmployee.maxWorkload} tasks
+                      </span>
+                    </div>
+                    <div className="w-full h-2 rounded-full bg-gray-100 overflow-hidden">
+                      <div
+                        className="h-full rounded-full transition-all duration-300"
+                        style={{
+                          width: `${Math.min(100, (activeEmployee.currentWorkload / activeEmployee.maxWorkload) * 100)}%`,
+                          backgroundColor:
+                            activeEmployee.currentWorkload >= activeEmployee.maxWorkload ? '#FF2E63' : '#08D9D6',
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => handleToggleAvailability(activeEmployee)}
+                    className="px-3.5 py-2 rounded-xl text-xs font-bold border transition-colors cursor-pointer"
+                    style={{
+                      borderColor: activeEmployee.status === 'AVAILABLE' ? '#FF2E63' : '#08D9D6',
+                      color: activeEmployee.status === 'AVAILABLE' ? '#FF2E63' : '#252A34',
+                      backgroundColor: activeEmployee.status === 'AVAILABLE' ? '#FFF5F7' : 'rgba(8, 217, 214, 0.15)',
+                    }}
+                  >
+                    {activeEmployee.status === 'AVAILABLE' ? 'Set to On Leave' : 'Set to Available'}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Staff Assigned Tasks Header & Sub-Tab Filters */}
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-4">
+              <div>
+                <h4 className="font-bold text-sm text-[#252A34]">
+                  Tasks Assigned to {activeEmployee?.name || 'Employee'} ({rawStaffTasks.length})
+                </h4>
+                <p className="text-xs text-gray-500">
+                  Update task status from To Do / Assigned → In Progress → Completed
+                </p>
+              </div>
+
+              {/* Sub-tab Filter Buttons matching /pending and /completed backend APIs */}
+              <div className="flex items-center gap-1.5 bg-white p-1 rounded-xl border border-gray-200 shadow-xs">
+                <button
+                  type="button"
+                  onClick={() => setWorkbenchFilter('ALL')}
+                  className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    workbenchFilter === 'ALL'
+                      ? 'bg-[#252A34] text-[#08D9D6]'
+                      : 'text-gray-600 hover:bg-gray-100'
+                  }`}
+                >
+                  All ({rawStaffTasks.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setWorkbenchFilter('PENDING')}
+                  className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    workbenchFilter === 'PENDING'
+                      ? 'bg-[#252A34] text-[#08D9D6]'
+                      : 'text-gray-600 hover:bg-gray-100'
+                  }`}
+                >
+                  Active / Pending ({staffPendingCount})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setWorkbenchFilter('COMPLETED')}
+                  className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    workbenchFilter === 'COMPLETED'
+                      ? 'bg-[#252A34] text-[#08D9D6]'
+                      : 'text-gray-600 hover:bg-gray-100'
+                  }`}
+                >
+                  Completed ({staffCompletedCount})
+                </button>
+              </div>
             </div>
 
             {staffTasks.length === 0 ? (

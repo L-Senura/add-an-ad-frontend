@@ -5,9 +5,10 @@
  */
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
+const STORAGE_KEY = 'add_an_ad_marketing_analyses';
 
-// Fallback demo analyses for immediate local preview and testing
-let demoAnalyses = [
+// Seed demo analyses if none saved in localStorage yet
+const INITIAL_DEMO_ANALYSES = [
   {
     analysisId: 201,
     clientId: 1,
@@ -49,196 +50,249 @@ let demoAnalyses = [
   },
 ];
 
-let nextAnalysisId = 204;
+function getStoredAnalyses() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed;
+      }
+    }
+  } catch (e) {
+    console.warn('Failed to parse stored analyses from localStorage:', e);
+  }
+  return [...INITIAL_DEMO_ANALYSES];
+}
+
+function saveStoredAnalyses(list) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+  } catch (e) {
+    console.warn('Failed to save analyses to localStorage:', e);
+  }
+}
+
+let demoAnalyses = getStoredAnalyses();
+
+async function request(endpoint, options = {}) {
+  const url = `${API_BASE_URL}${endpoint}`;
+  const defaultHeaders = {
+    'Content-Type': 'application/json',
+    Accept: 'application/json',
+  };
+
+  const config = {
+    ...options,
+    credentials: 'include',
+    headers: {
+      ...defaultHeaders,
+      ...options.headers,
+    },
+  };
+
+  try {
+    const response = await fetch(url, config);
+    const contentType = response.headers.get('content-type');
+    let data;
+
+    if (contentType && contentType.includes('application/json')) {
+      data = await response.json();
+    } else {
+      const text = await response.text();
+      try {
+        data = JSON.parse(text);
+      } catch {
+        data = text;
+      }
+    }
+
+    if (!response.ok) {
+      const errorMessage =
+        (typeof data === 'object' && (data?.message || data?.error)) ||
+        (typeof data === 'string' && data) ||
+        `Request failed with status ${response.status}`;
+      const error = new Error(errorMessage);
+      error.status = response.status;
+      error.data = data;
+      throw error;
+    }
+
+    return data;
+  } catch (err) {
+    if (err.name === 'TypeError' && err.message.includes('Failed to fetch')) {
+      const connectionError = new Error(
+        'Backend server not connected; running in local marketing storage mode.'
+      );
+      connectionError.isNetworkError = true;
+      throw connectionError;
+    }
+    throw err;
+  }
+}
 
 /**
- * Create a new campaign analysis record for a client.
+ * 1. Create a new campaign analysis record for a client.
  * POST /api/marketing/analysis/create
  */
 export async function createAnalysis(analysisData) {
+  const payload = {
+    clientId: Number(analysisData.clientId),
+    campaignId: analysisData.campaignId ? Number(analysisData.campaignId) : null,
+    campaignName: analysisData.campaignName || 'Campaign Analysis',
+    campaignViews: Number(analysisData.campaignViews) || 0,
+    clicks: Number(analysisData.clicks) || 0,
+    visibleStartDate: analysisData.visibleStartDate || new Date().toISOString().split('T')[0],
+    visibleEndDate:
+      analysisData.visibleEndDate ||
+      new Date(Date.now() + 1000 * 60 * 60 * 24 * 30).toISOString().split('T')[0],
+    campaignProgress: analysisData.campaignProgress || '15% Scheduled',
+    remarks: analysisData.remarks || '',
+  };
+
   try {
-    const response = await fetch(`${API_BASE_URL}/api/marketing/analysis/create`, {
+    return await request('/api/marketing/analysis/create', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(analysisData),
+      body: JSON.stringify(payload),
     });
-
-    if (response.ok) {
-      return await response.json();
-    }
-    const errText = await response.text();
-    throw new Error(errText || 'Failed to create campaign analysis');
-  } catch (err) {
-    console.warn('Backend unavailable, saving campaign analysis locally:', err.message);
-
+  } catch {
     const newRecord = {
-      analysisId: nextAnalysisId++,
-      clientId: Number(analysisData.clientId),
-      campaignId: analysisData.campaignId ? Number(analysisData.campaignId) : null,
-      campaignName: analysisData.campaignName || 'Untitled Campaign Analysis',
-      campaignViews: Number(analysisData.campaignViews) || 0,
-      clicks: Number(analysisData.clicks) || 0,
-      visibleStartDate: analysisData.visibleStartDate || new Date().toISOString().split('T')[0],
-      visibleEndDate: analysisData.visibleEndDate || new Date(Date.now() + 1000 * 60 * 60 * 24 * 30).toISOString().split('T')[0],
-      campaignProgress: analysisData.campaignProgress || '25% Scheduled',
-      remarks: analysisData.remarks || '',
+      analysisId: Date.now(),
+      ...payload,
       createdAt: new Date().toISOString(),
     };
-
     demoAnalyses.unshift(newRecord);
+    saveStoredAnalyses(demoAnalyses);
     return newRecord;
   }
 }
 
 /**
- * Retrieve all campaign analysis records for a specific client.
+ * 2. Retrieve all campaign analysis and progress records allocated for a specific client.
  * GET /api/marketing/analysis/client/{clientId}
  */
 export async function getAnalysisByClientId(clientId) {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/marketing/analysis/client/${clientId}`);
-    if (response.ok) {
-      return await response.json();
-    }
-  } catch (err) {
-    console.warn(`Backend unavailable, retrieving local analysis for client #${clientId}:`, err.message);
+    const data = await request(`/api/marketing/analysis/client/${clientId}`);
+    return Array.isArray(data) ? data : [];
+  } catch {
+    return demoAnalyses.filter((a) => Number(a.clientId) === Number(clientId));
   }
-
-  return demoAnalyses.filter((a) => Number(a.clientId) === Number(clientId));
 }
 
 /**
- * Retrieve campaign analysis for a specific campaign.
+ * 3. Retrieve campaign analysis for a specific campaign.
  * GET /api/marketing/analysis/campaign/{campaignId}
  */
 export async function getAnalysisByCampaignId(campaignId) {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/marketing/analysis/campaign/${campaignId}`);
-    if (response.ok) {
-      return await response.json();
-    }
-  } catch (err) {
-    console.warn(`Backend unavailable, retrieving local analysis for campaign #${campaignId}:`, err.message);
+    const data = await request(`/api/marketing/analysis/campaign/${campaignId}`);
+    return Array.isArray(data) ? data : [];
+  } catch {
+    return demoAnalyses.filter((a) => Number(a.campaignId) === Number(campaignId));
   }
-
-  return demoAnalyses.filter((a) => Number(a.campaignId) === Number(campaignId));
 }
 
 /**
- * Retrieve a specific analysis record by its primary key (analysis_id).
+ * 4. Retrieve a specific analysis record by its primary key (analysis_id).
  * GET /api/marketing/analysis/{analysisId}
  */
 export async function getAnalysisById(analysisId) {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/marketing/analysis/${analysisId}`);
-    if (response.ok) {
-      return await response.json();
-    }
-  } catch (err) {
-    console.warn(`Backend unavailable, retrieving local analysis #${analysisId}:`, err.message);
+    return await request(`/api/marketing/analysis/${analysisId}`);
+  } catch {
+    const found = demoAnalyses.find((a) => Number(a.analysisId) === Number(analysisId));
+    if (!found) throw new Error(`Campaign analysis #${analysisId} not found.`);
+    return found;
   }
-
-  const found = demoAnalyses.find((a) => Number(a.analysisId) === Number(analysisId));
-  if (!found) throw new Error(`Campaign analysis #${analysisId} not found.`);
-  return found;
 }
 
 /**
- * Retrieve all campaign analysis records across the platform.
+ * 5. Retrieve all campaign analysis records across the platform.
  * GET /api/marketing/analysis/all
  */
 export async function getAllAnalyses() {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/marketing/analysis/all`);
-    if (response.ok) {
-      return await response.json();
-    }
-  } catch (err) {
-    console.warn('Backend unavailable, retrieving all local analyses:', err.message);
+    const data = await request('/api/marketing/analysis/all');
+    return Array.isArray(data) ? data : [];
+  } catch {
+    return [...demoAnalyses];
   }
-
-  return [...demoAnalyses];
 }
 
 /**
- * Update campaign progress, views, visible dates, or analyst remarks.
+ * 6. Update campaign progress, views, visible dates, or analyst remarks.
  * PUT /api/marketing/analysis/{analysisId}
  */
 export async function updateAnalysis(analysisId, updatedData) {
+  const payload = {
+    ...updatedData,
+    campaignViews:
+      updatedData.campaignViews != null ? Number(updatedData.campaignViews) : undefined,
+    clicks: updatedData.clicks != null ? Number(updatedData.clicks) : undefined,
+  };
+
   try {
-    const response = await fetch(`${API_BASE_URL}/api/marketing/analysis/${analysisId}`, {
+    return await request(`/api/marketing/analysis/${analysisId}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(updatedData),
+      body: JSON.stringify(payload),
     });
-
-    if (response.ok) {
-      return await response.json();
-    }
-    const errText = await response.text();
-    throw new Error(errText || 'Failed to update analysis');
-  } catch (err) {
-    console.warn(`Backend unavailable, updating local analysis #${analysisId}:`, err.message);
-
+  } catch {
     const index = demoAnalyses.findIndex((a) => Number(a.analysisId) === Number(analysisId));
     if (index === -1) throw new Error(`Analysis #${analysisId} not found`);
 
     demoAnalyses[index] = {
       ...demoAnalyses[index],
-      ...updatedData,
+      ...payload,
       analysisId: Number(analysisId),
     };
+    saveStoredAnalyses(demoAnalyses);
     return demoAnalyses[index];
   }
 }
 
 /**
- * Increment campaign views count by count (default 1), simulating live audience impressions.
+ * 7. Programmatic View Callback Telemetry:
+ * Used by ad server webhooks / impression tracking pixels to report authentic impressions.
  * PUT /api/marketing/analysis/{analysisId}/increment-views?count={count}
  */
 export async function incrementViews(analysisId, count = 1) {
+  const c = Number(count != null ? count : 1);
   try {
-    const response = await fetch(`${API_BASE_URL}/api/marketing/analysis/${analysisId}/increment-views?count=${count}`, {
-      method: 'PUT',
-    });
+    return await request(
+      `/api/marketing/analysis/${analysisId}/increment-views?count=${c}`,
+      {
+        method: 'PUT',
+      }
+    );
+  } catch {
+    const index = demoAnalyses.findIndex((a) => Number(a.analysisId) === Number(analysisId));
+    if (index === -1) throw new Error(`Analysis #${analysisId} not found`);
 
-    if (response.ok) {
-      return await response.json();
-    }
-  } catch (err) {
-    console.warn(`Backend unavailable, simulating view increment for analysis #${analysisId}:`, err.message);
+    const currentViews = Number(demoAnalyses[index].campaignViews) || 0;
+    demoAnalyses[index].campaignViews = currentViews + c;
+    saveStoredAnalyses(demoAnalyses);
+
+    return {
+      analysisId: demoAnalyses[index].analysisId,
+      campaignName: demoAnalyses[index].campaignName,
+      updatedCampaignViews: demoAnalyses[index].campaignViews,
+    };
   }
-
-  const index = demoAnalyses.findIndex((a) => Number(a.analysisId) === Number(analysisId));
-  if (index === -1) throw new Error(`Analysis #${analysisId} not found`);
-
-  const currentViews = demoAnalyses[index].campaignViews || 0;
-  demoAnalyses[index].campaignViews = currentViews + count;
-
-  return {
-    analysisId: demoAnalyses[index].analysisId,
-    campaignName: demoAnalyses[index].campaignName,
-    updatedCampaignViews: demoAnalyses[index].campaignViews,
-  };
 }
 
 /**
- * Delete an analysis record.
+ * 8. Delete an analysis record.
  * DELETE /api/marketing/analysis/{analysisId}
  */
 export async function deleteAnalysis(analysisId) {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/marketing/analysis/${analysisId}`, {
+    return await request(`/api/marketing/analysis/${analysisId}`, {
       method: 'DELETE',
     });
-
-    if (response.ok) {
-      return await response.text();
-    }
-  } catch (err) {
-    console.warn(`Backend unavailable, deleting local analysis #${analysisId}:`, err.message);
+  } catch {
+    demoAnalyses = demoAnalyses.filter((a) => Number(a.analysisId) !== Number(analysisId));
+    saveStoredAnalyses(demoAnalyses);
+    return `Campaign analysis with ID ${analysisId} deleted successfully.`;
   }
-
-  demoAnalyses = demoAnalyses.filter((a) => Number(a.analysisId) !== Number(analysisId));
-  return `Campaign analysis #${analysisId} deleted successfully.`;
 }

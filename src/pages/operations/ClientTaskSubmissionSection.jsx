@@ -8,9 +8,17 @@ import {
   RefreshCw,
   X,
   Ban,
+  Clock,
+  Filter,
+  User,
+  Info,
+  AlertCircle,
+  FileText,
 } from 'lucide-react';
 import {
   getClientTasks,
+  getClientTasksByStatus,
+  getTaskDetails,
   submitClientTask,
   cancelClientTask,
 } from './operationsApi';
@@ -21,8 +29,9 @@ export default function ClientTaskSubmissionSection({ clientId = 1, clientName =
   const [campaigns, setCampaigns] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [notification, setNotification] = useState(null);
+  const [statusFilter, setStatusFilter] = useState('ALL');
 
-  // Modal State
+  // Submit Modal State
   const [showSubmitModal, setShowSubmitModal] = useState(false);
   const [taskForm, setTaskForm] = useState(() => ({
     taskTitle: '',
@@ -35,10 +44,19 @@ export default function ClientTaskSubmissionSection({ clientId = 1, clientName =
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [cancellingTaskId, setCancellingTaskId] = useState(null);
 
-  const fetchTasks = async () => {
+  // View Details Modal State
+  const [viewingTask, setViewingTask] = useState(null);
+  const [isLoadingDetails, setIsLoadingDetails] = useState(false);
+
+  const fetchTasks = async (status = statusFilter) => {
     setIsLoading(true);
     try {
-      const list = await getClientTasks(clientId);
+      let list = [];
+      if (status && status !== 'ALL') {
+        list = await getClientTasksByStatus(clientId, status);
+      } else {
+        list = await getClientTasks(clientId);
+      }
       setTasks(list || []);
     } catch (err) {
       console.warn('Error fetching client tasks:', err);
@@ -73,7 +91,13 @@ export default function ClientTaskSubmissionSection({ clientId = 1, clientName =
     };
   }, [clientId]);
 
-  // Submit new task
+  // Handle status filter change (GET /api/client_tasks/client/{clientId}/status/{status})
+  const handleStatusFilterChange = (newStatus) => {
+    setStatusFilter(newStatus);
+    fetchTasks(newStatus);
+  };
+
+  // Submit new task (POST /api/client_tasks/submit)
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!taskForm.taskTitle.trim() || !taskForm.taskDetails.trim()) return;
@@ -93,7 +117,7 @@ export default function ClientTaskSubmissionSection({ clientId = 1, clientName =
 
       setNotification({
         type: 'success',
-        text: 'Advertising task submitted! Our Task Coordinator will assign it to Production Staff shortly.',
+        text: 'Advertising task submitted! Our Task Coordinator will review and assign it to Production Staff.',
       });
 
       setShowSubmitModal(false);
@@ -106,8 +130,7 @@ export default function ClientTaskSubmissionSection({ clientId = 1, clientName =
         clientDeadline: '',
       });
 
-      const updated = await getClientTasks(clientId);
-      setTasks(updated || []);
+      await fetchTasks(statusFilter);
     } catch (err) {
       setNotification({
         type: 'error',
@@ -118,7 +141,7 @@ export default function ClientTaskSubmissionSection({ clientId = 1, clientName =
     }
   };
 
-  // Cancel task
+  // Cancel task (PUT /api/client_tasks/{taskId}/cancel)
   const handleCancelTask = async (taskId) => {
     setCancellingTaskId(taskId);
     try {
@@ -127,8 +150,7 @@ export default function ClientTaskSubmissionSection({ clientId = 1, clientName =
         type: 'success',
         text: `Task #${taskId} has been cancelled.`,
       });
-      const updated = await getClientTasks(clientId);
-      setTasks(updated || []);
+      await fetchTasks(statusFilter);
     } catch (err) {
       setNotification({
         type: 'error',
@@ -139,40 +161,87 @@ export default function ClientTaskSubmissionSection({ clientId = 1, clientName =
     }
   };
 
-  // Status badge helper
+  // View details (GET /api/client_tasks/{taskId})
+  const handleOpenDetails = async (taskId) => {
+    setIsLoadingDetails(true);
+    try {
+      const details = await getTaskDetails(taskId);
+      setViewingTask(details);
+    } catch (err) {
+      setNotification({
+        type: 'error',
+        text: err.message || 'Failed to fetch task details.',
+      });
+    } finally {
+      setIsLoadingDetails(false);
+    }
+  };
+
+  // Status badge styling helper
   const getStatusBadge = (status) => {
     const s = String(status).toUpperCase();
-    if (s === 'COMPLETED') return { bg: 'rgba(8, 217, 214, 0.15)', text: '#252A34', border: '#08D9D6', label: 'Completed' };
-    if (s === 'IN PROGRESS') return { bg: 'rgba(8, 217, 214, 0.25)', text: '#252A34', border: '#08D9D6', label: 'In Progress' };
-    if (s === 'ASSIGNED') return { bg: 'rgba(37, 42, 52, 0.08)', text: '#252A34', border: 'rgba(37, 42, 52, 0.2)', label: 'Assigned to Staff' };
-    if (s === 'CANCELLED') return { bg: '#FFF5F7', text: '#FF2E63', border: '#FF2E63', label: 'Cancelled' };
-    return { bg: '#FFF5F7', text: '#FF2E63', border: '#FF2E63', label: 'Awaiting Coordinator Assignment' };
+    if (s === 'COMPLETED')
+      return {
+        bg: 'rgba(8, 217, 214, 0.15)',
+        text: '#008280',
+        border: 'rgba(8, 217, 214, 0.4)',
+        label: 'Completed',
+      };
+    if (s === 'IN PROGRESS')
+      return {
+        bg: 'rgba(8, 217, 214, 0.25)',
+        text: '#252A34',
+        border: '#08D9D6',
+        label: 'In Progress',
+      };
+    if (s === 'ASSIGNED')
+      return {
+        bg: 'rgba(37, 42, 52, 0.08)',
+        text: '#252A34',
+        border: 'rgba(37, 42, 52, 0.2)',
+        label: 'Assigned to Staff',
+      };
+    if (s === 'CANCELLED')
+      return {
+        bg: '#FFF5F7',
+        text: '#FF2E63',
+        border: '#FF2E63',
+        label: 'Cancelled',
+      };
+    return {
+      bg: '#FFF5F7',
+      text: '#FF2E63',
+      border: '#FF2E63',
+      label: 'Awaiting Coordination',
+    };
   };
 
   return (
-    <div
-      className="rounded-[32px] p-6 sm:p-8 bg-white border shadow-md transition-all"
-      style={{ borderColor: 'rgba(8, 217, 214, 0.25)' }}
-    >
+    <div className="rounded-[32px] p-6 sm:p-8 bg-white border border-gray-200 shadow-md transition-all">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 mb-4 border-b border-gray-100 gap-3">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 mb-6 border-b border-gray-100 gap-3">
         <div>
-          <h3 className="text-xl font-bold flex items-center gap-2 text-[#252A34]">
-            <Briefcase className="w-5 h-5 text-[#FF2E63]" />
-            Advertising Tasks & Requirements Desk
-          </h3>
-          <p className="text-xs text-gray-500">
-            Submit creative tasks (graphics, videos, ad copies, landing pages) and track agency coordination.
+          <div className="flex items-center gap-2">
+            <Briefcase className="w-5 h-5 text-[#08D9D6]" />
+            <h3 className="text-xl font-bold text-[#252A34]">
+              Advertising Tasks & Production Coordination
+            </h3>
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#08D9D6]/15 text-[#008280] border border-[#08D9D6]/30 uppercase">
+              Client #{clientId}
+            </span>
+          </div>
+          <p className="text-xs text-gray-500 mt-0.5">
+            Submit campaign requirements and track task coordination with agency production staff.
           </p>
         </div>
 
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={fetchTasks}
+            onClick={() => fetchTasks(statusFilter)}
             disabled={isLoading}
             className="p-2 rounded-xl text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors cursor-pointer"
-            title="Refresh Tasks"
+            title="Refresh tasks"
           >
             <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin text-[#08D9D6]' : ''}`} />
           </button>
@@ -180,27 +249,32 @@ export default function ClientTaskSubmissionSection({ clientId = 1, clientName =
           <button
             type="button"
             onClick={() => setShowSubmitModal(true)}
-            className="px-4 py-2 rounded-2xl text-xs sm:text-sm font-bold shadow-md flex items-center gap-1.5 hover:opacity-95 transition-opacity cursor-pointer text-[#252A34]"
-            style={{ background: 'linear-gradient(135deg, #08D9D6 0%, #00b4b1 100%)' }}
+            className="px-4 py-2 rounded-xl text-xs sm:text-sm font-bold text-[#252A34] shadow-md hover:shadow-lg transition-all flex items-center gap-1.5 cursor-pointer"
+            style={{
+              background: 'linear-gradient(135deg, #08D9D6 0%, #00b4b1 100%)',
+            }}
           >
-            <PlusCircle className="w-4 h-4 text-[#252A34]" />
-            <span>Give / Request a Task</span>
+            <PlusCircle className="w-4 h-4" />
+            <span>Submit New Task</span>
           </button>
         </div>
       </div>
 
-      {/* Notification */}
+      {/* Notification Banner */}
       {notification && (
         <div
-          className="mb-4 p-3.5 rounded-2xl flex items-center justify-between border text-xs animate-fade-in"
-          style={{
-            backgroundColor: notification.type === 'success' ? 'rgba(8, 217, 214, 0.1)' : '#FFF5F7',
-            borderColor: notification.type === 'success' ? '#08D9D6' : '#FF2E63',
-            color: notification.type === 'success' ? '#252A34' : '#FF2E63',
-          }}
+          className={`mb-4 p-3.5 rounded-2xl flex items-center justify-between border text-xs animate-fade-in ${
+            notification.type === 'success'
+              ? 'bg-[#08D9D6]/10 border-[#08D9D6] text-[#252A34]'
+              : 'bg-[#FF2E63]/10 border-[#FF2E63] text-[#FF2E63]'
+          }`}
         >
           <div className="flex items-center gap-2 font-semibold">
-            <CheckCircle2 className="w-4 h-4 text-[#08D9D6]" />
+            {notification.type === 'success' ? (
+              <CheckCircle2 className="w-4 h-4 text-[#08D9D6]" />
+            ) : (
+              <AlertCircle className="w-4 h-4 text-[#FF2E63]" />
+            )}
             <span>{notification.text}</span>
           </div>
           <button
@@ -213,261 +287,379 @@ export default function ClientTaskSubmissionSection({ clientId = 1, clientName =
         </div>
       )}
 
-      {/* Task List Content */}
+      {/* Status Filter Bar */}
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <div className="flex items-center gap-2 text-xs">
+          <Filter className="w-3.5 h-3.5 text-[#08D9D6]" />
+          <span className="text-gray-500 font-semibold">Status Filter:</span>
+          <select
+            value={statusFilter}
+            onChange={(e) => handleStatusFilterChange(e.target.value)}
+            className="px-2.5 py-1 rounded-xl border border-gray-200 text-xs font-semibold bg-gray-50 text-[#252A34] focus:outline-none"
+          >
+            <option value="ALL">All Statuses ({tasks.length})</option>
+            <option value="PENDING_COORDINATION">Awaiting Coordination</option>
+            <option value="ASSIGNED">Assigned to Staff</option>
+            <option value="In Progress">In Progress</option>
+            <option value="Completed">Completed</option>
+            <option value="Cancelled">Cancelled</option>
+          </select>
+        </div>
+
+        <span className="text-xs text-gray-400">
+          {tasks.length} tasks registered for {clientName}
+        </span>
+      </div>
+
+      {/* Tasks List */}
       {isLoading ? (
         <div className="py-12 text-center">
-          <Loader2 className="w-8 h-8 animate-spin mx-auto mb-2 text-[#08D9D6]" />
-          <p className="text-xs font-semibold text-gray-400">Loading your submitted tasks...</p>
+          <Loader2 className="w-6 h-6 animate-spin mx-auto text-[#08D9D6]" />
+          <p className="text-xs text-gray-400 mt-2">Loading tasks...</p>
         </div>
       ) : tasks.length === 0 ? (
         <div className="py-10 text-center rounded-2xl bg-gray-50 border border-dashed border-gray-200">
           <Briefcase className="w-10 h-10 mx-auto text-gray-300 mb-2" />
-          <h4 className="text-sm font-bold text-[#252A34]">No Advertising Tasks Submitted Yet</h4>
+          <h4 className="text-sm font-bold text-gray-700">No Advertising Tasks Submitted Yet</h4>
           <p className="text-xs text-gray-500 max-w-sm mx-auto mt-1 mb-4">
-            Need custom graphics, promotional video cuts, ad copywriting, or landing page tweaks? Submit your requirements to our agency team.
+            Give creative and marketing requirements to the agency. Our Task Coordinator will assign appropriate Production Staff.
           </p>
           <button
             type="button"
             onClick={() => setShowSubmitModal(true)}
-            className="px-4 py-2 rounded-xl text-xs font-bold text-white shadow-xs cursor-pointer"
-            style={{ backgroundColor: '#FF2E63' }}
+            className="px-4 py-2 rounded-xl text-xs font-bold text-[#252A34] shadow-sm cursor-pointer"
+            style={{
+              background: 'linear-gradient(135deg, #08D9D6 0%, #00b4b1 100%)',
+            }}
           >
             + Submit First Task
           </button>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="space-y-3">
           {tasks.map((task) => {
-            const sBadge = getStatusBadge(task.status);
-            const canCancel = task.status !== 'Completed' && task.status !== 'Cancelled';
+            const badge = getStatusBadge(task.status);
+            const isCompleted = String(task.status).toLowerCase() === 'completed';
+            const isCancelled = String(task.status).toLowerCase() === 'cancelled';
 
             return (
               <div
                 key={task.id}
-                className="p-5 rounded-2xl border bg-gray-50/70 hover:bg-white hover:shadow-md transition-all flex flex-col justify-between"
-                style={{ borderColor: 'rgba(37, 42, 52, 0.12)' }}
+                className="p-4 rounded-2xl border border-gray-200 bg-[#EAEAEA]/30 hover:bg-[#EAEAEA]/50 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3"
               >
-                <div>
-                  <div className="flex items-start justify-between gap-2 mb-2">
-                    <div>
-                      <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-md uppercase" style={{ backgroundColor: '#FFF5F7', color: '#FF2E63' }}>
-                        {task.taskCategory}
-                      </span>
-                      <h4 className="font-extrabold text-sm text-[#252A34] mt-1 leading-snug">
-                        {task.taskTitle}
-                      </h4>
-                    </div>
-
+                <div className="space-y-1 max-w-xl">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-extrabold text-xs text-[#252A34]">
+                      Task #{task.id}
+                    </span>
                     <span
-                      className="text-[10px] font-extrabold px-2.5 py-0.5 rounded-full uppercase border whitespace-nowrap"
+                      className="text-[10px] font-bold px-2 py-0.5 rounded-full uppercase"
                       style={{
-                        backgroundColor: sBadge.bg,
-                        color: sBadge.text,
-                        borderColor: sBadge.border,
+                        backgroundColor: badge.bg,
+                        color: badge.text,
+                        border: `1px solid ${badge.border}`,
                       }}
                     >
-                      {sBadge.label}
+                      {badge.label}
+                    </span>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-white border border-gray-200 text-gray-600">
+                      {task.taskCategory}
+                    </span>
+                    <span
+                      className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded uppercase ${
+                        task.priority === 'URGENT'
+                          ? 'bg-[#FF2E63] text-white'
+                          : task.priority === 'HIGH'
+                          ? 'bg-[#FF2E63]/15 text-[#FF2E63]'
+                          : 'bg-gray-100 text-gray-600'
+                      }`}
+                    >
+                      {task.priority || 'MEDIUM'}
                     </span>
                   </div>
 
-                  <p className="text-xs text-gray-600 mb-3 line-clamp-3">
+                  <h4 className="font-bold text-sm text-[#252A34]">{task.taskTitle}</h4>
+
+                  <p className="text-xs text-gray-600 line-clamp-2">
                     {task.taskDetails}
                   </p>
 
-                  {/* Coordination details if assigned */}
-                  <div
-                    className="p-2.5 rounded-xl border text-xs mb-3 flex flex-col gap-1"
-                    style={{
-                      backgroundColor: task.employeeName ? 'rgba(8, 217, 214, 0.08)' : '#FFF5F7',
-                      borderColor: task.employeeName ? 'rgba(8, 217, 214, 0.3)' : 'rgba(255, 46, 99, 0.3)',
-                    }}
-                  >
-                    <div className="flex justify-between items-center">
-                      <span className="text-[10px] font-bold text-gray-500 uppercase">Assigned Staff:</span>
-                      <span className="font-bold text-xs" style={{ color: task.employeeName ? '#252A34' : '#FF2E63' }}>
-                        {task.employeeName || 'Awaiting Coordinator'}
+                  <div className="flex flex-wrap items-center gap-3 text-[11px] text-gray-400 pt-1">
+                    {task.campaignId && <span>Campaign #{task.campaignId}</span>}
+                    {task.employeeName ? (
+                      <span className="text-[#008280] font-semibold flex items-center gap-1">
+                        <User className="w-3 h-3" />
+                        Staff: {task.employeeName}
                       </span>
-                    </div>
-
-                    {task.coordinatorNotes && (
-                      <p className="text-[11px] text-gray-600 italic pt-1 border-t border-gray-200/50">
-                        <strong className="not-italic text-gray-500">Agency Note: </strong>
-                        "{task.coordinatorNotes}"
-                      </p>
+                    ) : (
+                      <span className="text-amber-600 font-medium">Unassigned</span>
                     )}
-                  </div>
-
-                  <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
-                    <span className="flex items-center gap-1">
-                      <Calendar className="w-3.5 h-3.5 text-[#08D9D6]" />
-                      Requested Due: <strong className="text-[#252A34]">{task.clientDeadline || 'Flexible'}</strong>
-                    </span>
-                    <span>Priority: <strong className="text-[#FF2E63]">{task.priority}</strong></span>
+                    {task.clientDeadline && (
+                      <span className="flex items-center gap-1">
+                        <Calendar className="w-3 h-3 text-[#08D9D6]" />
+                        Client Deadline: {task.clientDeadline}
+                      </span>
+                    )}
+                    {task.deadline && (
+                      <span className="flex items-center gap-1 text-gray-600">
+                        <Clock className="w-3 h-3 text-[#FF2E63]" />
+                        Coordinated Target: {task.deadline}
+                      </span>
+                    )}
                   </div>
                 </div>
 
-                {/* Cancel Action */}
-                {canCancel && (
-                  <div className="pt-2.5 border-t border-gray-200 flex justify-end">
+                <div className="flex items-center gap-2 pt-2 sm:pt-0 border-t sm:border-t-0 border-gray-200">
+                  {/* View Details Button (GET /api/client_tasks/{taskId}) */}
+                  <button
+                    type="button"
+                    onClick={() => handleOpenDetails(task.id)}
+                    className="px-3 py-1.5 rounded-xl text-xs font-semibold border border-gray-300 hover:border-[#08D9D6] text-[#252A34] bg-white hover:bg-gray-50 flex items-center gap-1 cursor-pointer"
+                  >
+                    <Info className="w-3.5 h-3.5 text-[#08D9D6]" />
+                    <span>Details</span>
+                  </button>
+
+                  {/* Cancel Button (PUT /api/client_tasks/{taskId}/cancel) */}
+                  {!isCompleted && !isCancelled && (
                     <button
                       type="button"
                       onClick={() => handleCancelTask(task.id)}
                       disabled={cancellingTaskId === task.id}
-                      className="text-xs text-gray-400 hover:text-[#FF2E63] font-semibold flex items-center gap-1 transition-colors cursor-pointer"
+                      className="px-3 py-1.5 rounded-xl text-xs font-bold border border-rose-200 text-[#FF2E63] hover:bg-rose-50 transition-colors flex items-center gap-1 cursor-pointer"
+                      title="Cancel this task submission"
                     >
                       {cancellingTaskId === task.id ? (
-                        <Loader2 className="w-3 h-3 animate-spin text-[#FF2E63]" />
+                        <Loader2 className="w-3 h-3 animate-spin" />
                       ) : (
                         <Ban className="w-3 h-3" />
                       )}
-                      <span>Cancel Task</span>
+                      <span>Cancel</span>
                     </button>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
             );
           })}
         </div>
       )}
 
-      {/* SUBMIT TASK MODAL */}
+      {/* SUBMIT TASK MODAL (POST /api/client_tasks/submit) */}
       {showSubmitModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs animate-fade-in">
-          <div
-            className="w-full max-w-lg rounded-3xl p-6 sm:p-7 bg-white border shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto"
-            style={{ borderColor: 'rgba(37, 42, 52, 0.2)' }}
-          >
-            <div className="flex items-center justify-between pb-3 border-b border-gray-100">
-              <div>
-                <h3 className="font-bold text-base text-[#252A34]">
-                  Submit Advertising Task to Agency
-                </h3>
-                <p className="text-xs text-gray-500">
-                  Provide creative briefs or technical requirements for our Task Coordinator.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowSubmitModal(false)}
-                className="text-gray-400 hover:text-gray-600 cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-fade-in">
+          <div className="rounded-[32px] p-6 sm:p-8 bg-white border border-gray-200 shadow-2xl max-w-lg w-full relative max-h-[90vh] overflow-y-auto">
+            <button
+              type="button"
+              onClick={() => setShowSubmitModal(false)}
+              className="absolute top-6 right-6 text-gray-400 hover:text-gray-600 cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
 
-            <form onSubmit={handleSubmit} className="space-y-3.5 text-xs sm:text-sm">
-              {/* Task Title */}
+            <h3 className="text-lg font-bold mb-1 text-[#252A34] flex items-center gap-2">
+              <PlusCircle className="w-5 h-5 text-[#08D9D6]" />
+              Submit Advertising Task to Agency
+            </h3>
+            <p className="text-xs text-gray-500 mb-4">
+              Describe your creative, production, or marketing requirements. Task Coordinator will review and allocate production staff.
+            </p>
+
+            <form onSubmit={handleSubmit} className="space-y-4 text-xs">
               <div>
-                <label className="block font-bold text-gray-700 mb-1">
-                  Task Title / Brief <span className="text-[#FF2E63]">*</span>
+                <label className="block font-bold text-[#252A34] mb-1">
+                  Task Title <span className="text-[#FF2E63]">*</span>
                 </label>
                 <input
                   type="text"
-                  required
                   value={taskForm.taskTitle}
                   onChange={(e) => setTaskForm({ ...taskForm, taskTitle: e.target.value })}
-                  placeholder="e.g. Design 3 Promo Instagram Banners for Weekend Flash Sale"
-                  className="w-full p-2.5 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#08D9D6] text-xs"
+                  placeholder="e.g. Design 3 Video Story Banners for TikTok & Instagram"
+                  required
+                  className="w-full p-2.5 rounded-xl border border-gray-300 focus:outline-none focus:ring-1 focus:ring-[#08D9D6] text-[#252A34]"
                 />
               </div>
 
-              {/* Category & Priority */}
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-bold text-gray-700 mb-1">Task Category</label>
+                  <label className="block font-bold text-[#252A34] mb-1">Task Category</label>
                   <select
                     value={taskForm.taskCategory}
                     onChange={(e) => setTaskForm({ ...taskForm, taskCategory: e.target.value })}
-                    className="w-full p-2.5 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#08D9D6] bg-white text-xs"
+                    className="w-full p-2.5 rounded-xl border border-gray-300 focus:outline-none focus:ring-1 focus:ring-[#08D9D6] bg-white text-[#252A34]"
                   >
-                    <option value="Graphic Design">Graphic Design & Banners</option>
+                    <option value="Graphic Design">Graphic Design & Creative</option>
                     <option value="Video Production">Video Production & Reels</option>
                     <option value="Copywriting">Copywriting & Slogans</option>
-                    <option value="Social Media">Social Media Posts</option>
-                    <option value="Web Development">Web / Landing Page</option>
+                    <option value="Web Development">Landing Page & Web</option>
+                    <option value="Social Media">Social Media Campaign</option>
                     <option value="General Marketing">General Marketing</option>
                   </select>
                 </div>
 
                 <div>
-                  <label className="block font-bold text-gray-700 mb-1">Priority</label>
+                  <label className="block font-bold text-[#252A34] mb-1">Urgency Priority</label>
                   <select
                     value={taskForm.priority}
                     onChange={(e) => setTaskForm({ ...taskForm, priority: e.target.value })}
-                    className="w-full p-2.5 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#08D9D6] bg-white text-xs"
+                    className="w-full p-2.5 rounded-xl border border-gray-300 focus:outline-none focus:ring-1 focus:ring-[#08D9D6] bg-white text-[#252A34]"
                   >
-                    <option value="LOW">LOW</option>
-                    <option value="MEDIUM">MEDIUM</option>
-                    <option value="HIGH">HIGH</option>
-                    <option value="URGENT">URGENT</option>
+                    <option value="LOW">Low Priority</option>
+                    <option value="MEDIUM">Medium Priority (Standard)</option>
+                    <option value="HIGH">High Priority</option>
+                    <option value="URGENT">Urgent (Immediate Turnaround)</option>
                   </select>
                 </div>
               </div>
 
-              {/* Linked Campaign */}
-              {campaigns.length > 0 && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-bold text-gray-700 mb-1">Associated Campaign (Optional)</label>
+                  <label className="block font-bold text-[#252A34] mb-1">
+                    Related Campaign (Optional)
+                  </label>
                   <select
                     value={taskForm.campaignId}
                     onChange={(e) => setTaskForm({ ...taskForm, campaignId: e.target.value })}
-                    className="w-full p-2.5 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#08D9D6] bg-white text-xs"
+                    className="w-full p-2.5 rounded-xl border border-gray-300 focus:outline-none focus:ring-1 focus:ring-[#08D9D6] bg-white text-[#252A34]"
                   >
-                    <option value="">No specific campaign</option>
-                    {campaigns.map((camp) => (
-                      <option key={camp.campaignId} value={String(camp.campaignId)}>
-                        Campaign #{camp.campaignId}: {camp.campaignName}
+                    <option value="">General Agency Request (No Campaign)</option>
+                    {campaigns.map((c) => (
+                      <option key={c.campaignId} value={String(c.campaignId)}>
+                        #{c.campaignId} - {c.campaignName}
                       </option>
                     ))}
                   </select>
                 </div>
-              )}
 
-              {/* Deadline */}
-              <div>
-                <label className="block font-bold text-gray-700 mb-1">Requested Deadline Date</label>
-                <input
-                  type="date"
-                  value={taskForm.clientDeadline}
-                  onChange={(e) => setTaskForm({ ...taskForm, clientDeadline: e.target.value })}
-                  className="w-full p-2.5 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#08D9D6] text-xs"
-                />
+                <div>
+                  <label className="block font-bold text-[#252A34] mb-1">
+                    Desired Client Deadline
+                  </label>
+                  <input
+                    type="date"
+                    value={taskForm.clientDeadline}
+                    onChange={(e) => setTaskForm({ ...taskForm, clientDeadline: e.target.value })}
+                    className="w-full p-2.5 rounded-xl border border-gray-300 focus:outline-none focus:ring-1 focus:ring-[#08D9D6] text-[#252A34]"
+                  />
+                </div>
               </div>
 
-              {/* Task Details / Requirements */}
               <div>
-                <label className="block font-bold text-gray-700 mb-1">
-                  Detailed Requirements / Creative Instructions <span className="text-[#FF2E63]">*</span>
+                <label className="block font-bold text-[#252A34] mb-1">
+                  Task Requirements & Specifications <span className="text-[#FF2E63]">*</span>
                 </label>
                 <textarea
                   rows="4"
-                  required
                   value={taskForm.taskDetails}
                   onChange={(e) => setTaskForm({ ...taskForm, taskDetails: e.target.value })}
-                  placeholder="Specify dimensions, copy slogans, color preferences, file format needs (PNG, MP4, etc.)..."
-                  className="w-full p-2.5 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#08D9D6] text-xs"
+                  placeholder="Detail dimensions, copy guidelines, references, target channels, or specific creative requests..."
+                  required
+                  className="w-full p-2.5 rounded-xl border border-gray-300 focus:outline-none focus:ring-1 focus:ring-[#08D9D6] text-[#252A34]"
                 />
               </div>
 
-              <div className="pt-3 border-t border-gray-100 flex items-center justify-end gap-2">
+              <div className="pt-2 flex items-center justify-end gap-2">
                 <button
                   type="button"
                   onClick={() => setShowSubmitModal(false)}
-                  className="px-4 py-2 rounded-xl border border-gray-300 text-gray-700 cursor-pointer"
+                  className="px-4 py-2 rounded-xl border border-gray-300 text-gray-700 font-semibold cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="px-5 py-2 rounded-xl font-bold shadow-xs flex items-center gap-1.5 cursor-pointer text-[#252A34]"
-                  style={{ background: 'linear-gradient(135deg, #08D9D6 0%, #00b4b1 100%)' }}
+                  className="px-5 py-2 rounded-xl font-bold text-[#252A34] shadow-md flex items-center gap-1.5 cursor-pointer"
+                  style={{
+                    background: 'linear-gradient(135deg, #08D9D6 0%, #00b4b1 100%)',
+                  }}
                 >
-                  {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin text-[#252A34]" /> : <PlusCircle className="w-4 h-4 text-[#252A34]" />}
-                  <span>Submit Task</span>
+                  {isSubmitting ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <CheckCircle2 className="w-4 h-4" />
+                  )}
+                  <span>Submit Task Request</span>
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* VIEW DETAILS MODAL (GET /api/client_tasks/{taskId}) */}
+      {viewingTask && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-fade-in">
+          <div className="rounded-[32px] p-6 sm:p-8 bg-white border border-gray-200 shadow-2xl max-w-md w-full relative">
+            <button
+              type="button"
+              onClick={() => setViewingTask(null)}
+              className="absolute top-6 right-6 text-gray-400 hover:text-gray-600 cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <h3 className="text-base font-bold text-[#252A34] mb-1 flex items-center gap-2">
+              <FileText className="w-4 h-4 text-[#08D9D6]" />
+              Task #{viewingTask.id} Coordination Details
+            </h3>
+            <p className="text-xs text-gray-500 mb-4">{viewingTask.taskTitle}</p>
+
+            <div className="space-y-2 text-xs">
+              <div className="flex justify-between py-1 border-b border-gray-100">
+                <span className="text-gray-500">Category:</span>
+                <span className="font-bold text-[#252A34]">{viewingTask.taskCategory}</span>
+              </div>
+              <div className="flex justify-between py-1 border-b border-gray-100">
+                <span className="text-gray-500">Current Status:</span>
+                <span className="font-extrabold text-[#008280]">{viewingTask.status}</span>
+              </div>
+              <div className="flex justify-between py-1 border-b border-gray-100">
+                <span className="text-gray-500">Priority:</span>
+                <span className="font-bold text-[#FF2E63]">{viewingTask.priority}</span>
+              </div>
+              <div className="flex justify-between py-1 border-b border-gray-100">
+                <span className="text-gray-500">Assigned Production Staff:</span>
+                <span className="font-bold text-[#252A34]">
+                  {viewingTask.employeeName || 'Awaiting Coordinator Assignment'}
+                </span>
+              </div>
+              {viewingTask.clientDeadline && (
+                <div className="flex justify-between py-1 border-b border-gray-100">
+                  <span className="text-gray-500">Client Deadline:</span>
+                  <span className="font-bold text-[#252A34]">{viewingTask.clientDeadline}</span>
+                </div>
+              )}
+              {viewingTask.deadline && (
+                <div className="flex justify-between py-1 border-b border-gray-100">
+                  <span className="text-gray-500">Target Delivery Date:</span>
+                  <span className="font-bold text-[#252A34]">{viewingTask.deadline}</span>
+                </div>
+              )}
+              <div className="pt-2">
+                <span className="text-gray-500 block mb-1">Your Requirements:</span>
+                <p className="p-2.5 rounded-xl bg-gray-50 text-gray-700">
+                  {viewingTask.taskDetails}
+                </p>
+              </div>
+              {viewingTask.coordinatorNotes && (
+                <div className="pt-2">
+                  <span className="text-gray-500 block mb-1 font-semibold text-[#008280]">
+                    Task Coordinator Instructions:
+                  </span>
+                  <p className="p-2.5 rounded-xl bg-[#08D9D6]/10 border border-[#08D9D6]/30 text-gray-700 italic">
+                    "{viewingTask.coordinatorNotes}"
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setViewingTask(null)}
+              className="mt-5 w-full py-2.5 rounded-xl font-bold text-xs text-white bg-[#252A34] hover:bg-[#1a1e26] cursor-pointer"
+            >
+              Close
+            </button>
           </div>
         </div>
       )}
