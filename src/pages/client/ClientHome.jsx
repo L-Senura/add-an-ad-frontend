@@ -1,16 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
-  Building2,
-  User,
-  Mail,
-  Phone,
-  FileText,
-  Lock,
   Edit3,
   CheckCircle2,
   Megaphone,
   ArrowRight,
-  LogOut,
   Save,
   X,
   Loader2,
@@ -21,6 +14,15 @@ import {
   Trash2,
   AlertTriangle,
   Tag,
+  TrendingUp,
+  Briefcase,
+  Receipt,
+  Star,
+  Sparkles,
+  Search,
+  Filter,
+  ArrowUpRight,
+  Plus,
 } from 'lucide-react';
 import {
   getClientById,
@@ -28,15 +30,18 @@ import {
   updateClientProfile,
   getStoredAuthSession,
   saveAuthSession,
-  clearAuthSession,
 } from './api';
 import {
   getCampaignsByClientId,
+  createCampaign,
   updateCampaign,
   deleteCampaign,
   DEFAULT_RATE_CARD,
   DEFAULT_CAMPAIGN_TYPES,
 } from '../campaign/campaignApi';
+import { getAnalysisByClientId } from '../marketing/marketingApi';
+import { getClientTasks } from '../operations/operationsApi';
+import { getInvoicesByClientId } from '../finance/financeApi';
 import ClientChatInterface from '../communication/clientChatInterface';
 import ReviewInterface from '../communication/reviewInterface';
 import ClientInvoicesSection from '../finance/ClientInvoicesSection';
@@ -44,21 +49,39 @@ import ClientMarketingSection from '../marketing/ClientMarketingSection';
 import ClientTaskSubmissionSection from '../operations/ClientTaskSubmissionSection';
 
 export default function ClientHome({ onPostAdvertisement, onLogout }) {
+  // Core authentication and client profile state
   const [client, setClient] = useState(null);
   const [campaigns, setCampaigns] = useState([]);
-  const [isEditing, setIsEditing] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const [isSaving, setIsSaving] = useState(false);
   const [alertMessage, setAlertMessage] = useState(null); // { type: 'success'|'error', text: '' }
 
-  // Campaign editing & deletion modal state
+  // Quick summary telemetry metrics displayed inside the 4 cards
+  const [marketingSummary, setMarketingSummary] = useState({ views: 0, clicks: 0, ctr: '0.00' });
+  const [taskSummary, setTaskSummary] = useState({ count: 0, pending: 0 });
+  const [invoiceSummary, setInvoiceSummary] = useState({ count: 0, pendingCount: 0, pendingTotal: 0 });
+
+  // Interactive Popup Modal State
+  // 'chat' | 'add_campaign' | 'campaign_details' | 'marketing' | 'tasks' | 'billing' | 'review' | 'edit_profile' | null
+  const [activeModal, setActiveModal] = useState(null);
+
+  // Sub-modal state for Card 1 (Live Campaigns): Editing & Deleting
   const [editingCampaign, setEditingCampaign] = useState(null);
   const [deletingCampaign, setDeletingCampaign] = useState(null);
   const [isCampaignSaving, setIsCampaignSaving] = useState(false);
   const [isCampaignDeleting, setIsCampaignDeleting] = useState(false);
+  const [campaignSearchQuery, setCampaignSearchQuery] = useState('');
+  const [campaignStatusFilter, setCampaignStatusFilter] = useState('ALL');
 
-  // Editable form state for "Edit Profile"
+  // New Campaign Form State (for "Add your Ad Here" popup)
+  const [newCampaignForm, setNewCampaignForm] = useState({
+    campaignName: '',
+    campaignType: DEFAULT_CAMPAIGN_TYPES[0] || 'In-Site Ad Hype',
+    selectedChannels: ['on-site pin', 'YouTube'],
+    status: 'ACTIVE',
+  });
+  const [isCreatingCampaign, setIsCreatingCampaign] = useState(false);
+
+  // Edit Profile Form State
   const [editForm, setEditForm] = useState({
     firstName: '',
     lastName: '',
@@ -68,8 +91,10 @@ export default function ClientHome({ onPostAdvertisement, onLogout }) {
     companyDetails: '',
     password: '',
   });
+  const [showPassword, setShowPassword] = useState(false);
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
 
-  const initForm = (data) => {
+  const initEditForm = (data) => {
     setEditForm({
       firstName: data.firstName || '',
       lastName: data.lastName || '',
@@ -81,13 +106,42 @@ export default function ClientHome({ onPostAdvertisement, onLogout }) {
     });
   };
 
+  // Close active modal on Escape key press and manage body scroll locking
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        if (editingCampaign) {
+          setEditingCampaign(null);
+        } else if (deletingCampaign) {
+          setDeletingCampaign(null);
+        } else if (activeModal) {
+          setActiveModal(null);
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [activeModal, editingCampaign, deletingCampaign]);
+
+  // Lock body scroll when any modal is open
+  useEffect(() => {
+    if (activeModal || editingCampaign || deletingCampaign) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = 'unset';
+    }
+    return () => {
+      document.body.style.overflow = 'unset';
+    };
+  }, [activeModal, editingCampaign, deletingCampaign]);
+
+  // Load client profile, campaigns, and dashboard telemetry previews
   useEffect(() => {
     async function loadClientData() {
       setIsLoading(true);
       const session = getStoredAuthSession();
 
       if (!session) {
-        // Fallback demo client if navigated directly
         const fallbackClient = {
           clientID: 1,
           firstName: 'Alexander',
@@ -100,7 +154,7 @@ export default function ClientHome({ onPostAdvertisement, onLogout }) {
           status: 'ACCEPTED',
         };
         setClient(fallbackClient);
-        initForm(fallbackClient);
+        initEditForm(fallbackClient);
         setIsLoading(false);
         return;
       }
@@ -134,21 +188,69 @@ export default function ClientHome({ onPostAdvertisement, onLogout }) {
         };
 
         setClient(resolved);
-        initForm(resolved);
+        initEditForm(resolved);
 
-        // Fetch client's existing campaigns
-        if (resolved.clientID) {
-          try {
-            const list = await getCampaignsByClientId(resolved.clientID);
-            if (Array.isArray(list)) {
-              setCampaigns(list);
-            }
-          } catch (e) {
-            console.warn('Could not load client campaigns:', e);
-          }
-        }
+        const clientId = resolved.clientID;
+
+        // Fetch live campaigns and telemetry summaries in parallel
+        await Promise.allSettled([
+          // 1. Campaigns
+          getCampaignsByClientId(clientId)
+            .then((list) => {
+              if (Array.isArray(list)) setCampaigns(list);
+            })
+            .catch(() => {}),
+
+          // 2. Marketing Telemetry Preview
+          getAnalysisByClientId(clientId)
+            .then((analyses) => {
+              if (Array.isArray(analyses) && analyses.length > 0) {
+                const totalViews = analyses.reduce(
+                  (acc, a) => acc + (Number(a.campaignViews) || 0),
+                  0
+                );
+                const totalClicks = analyses.reduce((acc, a) => acc + (Number(a.clicks) || 0), 0);
+                const avgCtr =
+                  totalViews > 0 ? ((totalClicks / totalViews) * 100).toFixed(2) : '0.00';
+                setMarketingSummary({ views: totalViews, clicks: totalClicks, ctr: avgCtr });
+              }
+            })
+            .catch(() => {}),
+
+          // 3. Operations Tasks Preview
+          getClientTasks(clientId)
+            .then((taskList) => {
+              if (Array.isArray(taskList)) {
+                const pending = taskList.filter(
+                  (t) => String(t.status).toUpperCase() !== 'COMPLETED'
+                ).length;
+                setTaskSummary({ count: taskList.length, pending });
+              }
+            })
+            .catch(() => {}),
+
+          // 4. Invoices Preview
+          getInvoicesByClientId(clientId)
+            .then((invoiceList) => {
+              if (Array.isArray(invoiceList)) {
+                const pendingInvoices = invoiceList.filter(
+                  (inv) => String(inv.status).toUpperCase() !== 'PAID'
+                );
+                const pendingTotal = pendingInvoices.reduce(
+                  (acc, inv) => acc + (Number(inv.amount) || 0),
+                  0
+                );
+                setInvoiceSummary({
+                  count: invoiceList.length,
+                  pendingCount: pendingInvoices.length,
+                  pendingTotal,
+                });
+              }
+            })
+            .catch(() => {}),
+        ]);
       } catch (err) {
-        console.error('Error loading client profile:', err);
+        console.error('Error loading client dashboard data:', err);
       } finally {
         setIsLoading(false);
       }
@@ -157,6 +259,32 @@ export default function ClientHome({ onPostAdvertisement, onLogout }) {
     loadClientData();
   }, []);
 
+  // Recalculate price when channels toggle in New Campaign Modal
+  const newCampaignPrice = useMemo(() => {
+    return newCampaignForm.selectedChannels.reduce((sum, ch) => {
+      return sum + (DEFAULT_RATE_CARD[ch] || 500);
+    }, 0);
+  }, [newCampaignForm.selectedChannels]);
+
+  const companyTitle = client?.companyName || editForm.companyName || 'Nova Marketing Agency';
+  const reviewerName =
+    `${client?.firstName || ''} ${client?.lastName || ''}`.trim() || companyTitle;
+
+  // Compute total active campaign budget
+  const totalCampaignSpend = campaigns.reduce(
+    (acc, c) => acc + (Number(c.campaignPrices) || 0),
+    0
+  );
+
+  // Agency monogram initials for avatar circle
+  const getInitials = (name) => {
+    if (!name) return 'AD';
+    const parts = name.trim().split(/\s+/);
+    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+    return (parts[0][0] + parts[1][0]).toUpperCase();
+  };
+
+  // --- Profile Edit Handlers ---
   const handleEditChange = (e) => {
     const { name, value } = e.target;
     setEditForm((prev) => ({ ...prev, [name]: value }));
@@ -164,7 +292,7 @@ export default function ClientHome({ onPostAdvertisement, onLogout }) {
 
   const handleSaveProfile = async (e) => {
     e.preventDefault();
-    setIsSaving(true);
+    setIsSavingProfile(true);
     setAlertMessage(null);
 
     try {
@@ -181,32 +309,101 @@ export default function ClientHome({ onPostAdvertisement, onLogout }) {
       const merged = { ...client, ...updated };
       setClient(merged);
       saveAuthSession({ ...getStoredAuthSession(), ...merged });
-      setIsEditing(false);
+      setActiveModal(null);
       setAlertMessage({
         type: 'success',
-        text: 'Your agency profile details have been successfully updated!',
+        text: 'Your agency profile credentials have been successfully updated!',
       });
     } catch {
-      // If backend offline, persist in local session as fallback
       const fallbackUpdated = { ...client, ...editForm };
       setClient(fallbackUpdated);
       saveAuthSession({ ...getStoredAuthSession(), ...fallbackUpdated });
-      setIsEditing(false);
+      setActiveModal(null);
       setAlertMessage({
         type: 'success',
-        text: 'Profile details updated successfully (saved locally).',
+        text: 'Agency profile details updated successfully.',
       });
     } finally {
-      setIsSaving(false);
+      setIsSavingProfile(false);
     }
   };
 
-  const handleLogout = () => {
-    clearAuthSession();
-    if (onLogout) onLogout();
+  // --- New Campaign Creation Handlers ("Add your Ad Here") ---
+  const toggleNewCampaignChannel = (channel) => {
+    setNewCampaignForm((prev) => {
+      const exists = prev.selectedChannels.includes(channel);
+      const updated = exists
+        ? prev.selectedChannels.filter((c) => c !== channel)
+        : [...prev.selectedChannels, channel];
+      return { ...prev, selectedChannels: updated };
+    });
   };
 
-  // --- Campaign Edit & Delete Handlers ---
+  const handleCreateCampaignSubmit = async (e) => {
+    e.preventDefault();
+    if (!newCampaignForm.campaignName.trim()) {
+      setAlertMessage({ type: 'error', text: 'Campaign name is required.' });
+      return;
+    }
+    if (newCampaignForm.selectedChannels.length === 0) {
+      setAlertMessage({
+        type: 'error',
+        text: 'Please select at least one advertising media channel.',
+      });
+      return;
+    }
+
+    setIsCreatingCampaign(true);
+    setAlertMessage(null);
+
+    const payload = {
+      clientID: client?.clientID || 1,
+      campaignName: newCampaignForm.campaignName.trim(),
+      campaignType: newCampaignForm.campaignType,
+      selectedChannels: newCampaignForm.selectedChannels.join(', '),
+      campaignPrices: newCampaignPrice,
+      status: newCampaignForm.status || 'ACTIVE',
+    };
+
+    try {
+      const created = await createCampaign(payload);
+      const newCamp = {
+        ...payload,
+        campaignId: created?.campaignId || Date.now(),
+        ...(typeof created === 'object' && created !== null ? created : {}),
+      };
+
+      setCampaigns((prev) => [newCamp, ...prev]);
+      setActiveModal(null);
+      setAlertMessage({
+        type: 'success',
+        text: `Campaign "${payload.campaignName}" has been successfully created and published!`,
+      });
+
+      // Reset form
+      setNewCampaignForm({
+        campaignName: '',
+        campaignType: DEFAULT_CAMPAIGN_TYPES[0] || 'In-Site Ad Hype',
+        selectedChannels: ['on-site pin', 'YouTube'],
+        status: 'ACTIVE',
+      });
+    } catch {
+      const fallbackCamp = {
+        ...payload,
+        campaignId: Date.now(),
+      };
+      setCampaigns((prev) => [fallbackCamp, ...prev]);
+      setActiveModal(null);
+      setAlertMessage({
+        type: 'success',
+        text: `Campaign "${payload.campaignName}" was added successfully.`,
+      });
+    } finally {
+      setIsCreatingCampaign(false);
+    }
+  };
+
+  // --- Campaign Edit & Delete Handlers (inside Card 1 Live Campaigns Modal) ---
   const handleOpenEditCampaign = (camp) => {
     const rawChannels = camp.selectedChannels;
     const channels = Array.isArray(rawChannels)
@@ -223,10 +420,6 @@ export default function ClientHome({ onPostAdvertisement, onLogout }) {
       campaignPrices: camp.campaignPrices || 0,
       status: camp.status || 'ACTIVE',
     });
-  };
-
-  const handleCloseEditCampaign = () => {
-    setEditingCampaign(null);
   };
 
   const handleToggleEditChannel = (channelName) => {
@@ -250,7 +443,7 @@ export default function ClientHome({ onPostAdvertisement, onLogout }) {
     });
   };
 
-  const handleSaveCampaign = async (e) => {
+  const handleSaveCampaignUpdate = async (e) => {
     e.preventDefault();
     if (!editingCampaign) return;
 
@@ -258,9 +451,8 @@ export default function ClientHome({ onPostAdvertisement, onLogout }) {
       setAlertMessage({ type: 'error', text: 'Campaign name is required.' });
       return;
     }
-
     if (editingCampaign.selectedChannels.length === 0) {
-      setAlertMessage({ type: 'error', text: 'Please select at least one advertising channel.' });
+      setAlertMessage({ type: 'error', text: 'Please select at least one media channel.' });
       return;
     }
 
@@ -293,7 +485,7 @@ export default function ClientHome({ onPostAdvertisement, onLogout }) {
       setEditingCampaign(null);
       setAlertMessage({
         type: 'success',
-        text: `Campaign "${payload.campaignName}" has been successfully updated!`,
+        text: `Campaign "${payload.campaignName}" details have been updated!`,
       });
     } catch {
       const fallbackCampaign = {
@@ -308,19 +500,11 @@ export default function ClientHome({ onPostAdvertisement, onLogout }) {
       setEditingCampaign(null);
       setAlertMessage({
         type: 'success',
-        text: `Campaign "${payload.campaignName}" updated successfully (saved locally).`,
+        text: `Campaign "${payload.campaignName}" updated successfully.`,
       });
     } finally {
       setIsCampaignSaving(false);
     }
-  };
-
-  const handleOpenDeleteCampaign = (camp) => {
-    setDeletingCampaign(camp);
-  };
-
-  const handleCloseDeleteCampaign = () => {
-    setDeletingCampaign(null);
   };
 
   const handleConfirmDeleteCampaign = async () => {
@@ -337,7 +521,7 @@ export default function ClientHome({ onPostAdvertisement, onLogout }) {
       setDeletingCampaign(null);
       setAlertMessage({
         type: 'success',
-        text: `Campaign "${targetName}" was successfully deleted.`,
+        text: `Campaign "${targetName}" was permanently removed.`,
       });
     } catch {
       setCampaigns((prev) => prev.filter((c) => (c.campaignId || c.id) !== targetId));
@@ -351,187 +535,1015 @@ export default function ClientHome({ onPostAdvertisement, onLogout }) {
     }
   };
 
+  // Filtered campaigns for Card 1 popup
+  const filteredCampaigns = campaigns.filter((camp) => {
+    const matchesSearch =
+      !campaignSearchQuery.trim() ||
+      (camp.campaignName &&
+        camp.campaignName.toLowerCase().includes(campaignSearchQuery.toLowerCase())) ||
+      (camp.campaignType &&
+        camp.campaignType.toLowerCase().includes(campaignSearchQuery.toLowerCase()));
+
+    const matchesStatus =
+      campaignStatusFilter === 'ALL' ||
+      String(camp.status).toUpperCase() === campaignStatusFilter.toUpperCase();
+
+    return matchesSearch && matchesStatus;
+  });
+
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#EAEAEA]">
-        <div className="text-center">
+        <div className="text-center p-8 rounded-3xl bg-white shadow-xl border border-gray-200">
           <Loader2 className="w-10 h-10 animate-spin mx-auto mb-3 text-[#08D9D6]" />
-          <p className="font-semibold text-sm text-[#252A34]">
-            Loading your agency profile...
+          <p className="font-bold text-sm text-[#252A34]">
+            Loading your agency portal interface...
           </p>
+          <p className="text-xs text-gray-400 mt-1">Connecting telemetry and services...</p>
         </div>
       </div>
     );
   }
 
-  const companyTitle = client?.companyName || editForm.companyName || 'Your Agency';
-
   return (
     <div
-      className="min-h-screen w-full py-8 px-4 sm:px-6 lg:px-8 font-sans"
+      className="min-h-screen w-full py-8 px-4 sm:px-6 lg:px-8 font-sans transition-colors"
       style={{
         backgroundColor: '#EAEAEA',
         backgroundImage: `
-          radial-gradient(circle at 10% 20%, rgba(8, 217, 214, 0.12) 0%, transparent 40%),
-          radial-gradient(circle at 90% 80%, rgba(255, 46, 99, 0.1) 0%, transparent 45%),
-          radial-gradient(circle at 50% 50%, rgba(37, 42, 52, 0.04) 0%, transparent 60%)
+          radial-gradient(circle at 10% 20%, rgba(8, 217, 214, 0.08) 0%, transparent 40%),
+          radial-gradient(circle at 90% 80%, rgba(255, 46, 99, 0.08) 0%, transparent 45%),
+          radial-gradient(circle at 50% 50%, rgba(37, 42, 52, 0.02) 0%, transparent 60%)
         `,
       }}
     >
-      {/* Top Navbar */}
-      <header className="max-w-4xl mx-auto w-full flex items-center justify-between gap-4 mb-8">
-        <div className="flex items-center space-x-3">
-          <div
-            className="w-11 h-11 rounded-2xl flex items-center justify-center shadow-md font-extrabold text-white text-lg tracking-wider"
-            style={{
-              background: 'linear-gradient(135deg, #08D9D6 0%, #FF2E63 100%)',
-            }}
-          >
-            AD
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="text-xl font-bold tracking-tight" style={{ color: '#252A34' }}>
-                Add-an-Ad
-              </span>
-              <span
-                className="text-[11px] font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wider"
-                style={{
-                  backgroundColor: 'rgba(8, 217, 214, 0.2)',
-                  color: '#252A34',
-                }}
-              >
-                Client Portal
-              </span>
-            </div>
-            <p className="text-xs font-medium text-gray-500">
-              Advertising Agency Management Suite
-            </p>
-          </div>
-        </div>
-
-        <button
-          type="button"
-          onClick={handleLogout}
-          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold border transition-all duration-200 bg-white hover:bg-gray-50 text-red-600 hover:text-red-700 shadow-xs cursor-pointer"
-          style={{ borderColor: 'rgba(255, 46, 99, 0.3)' }}
-        >
-          <LogOut className="w-4 h-4" />
-          Sign Out
-        </button>
-      </header>
-
-      {/* Main Content Area */}
-      <main className="max-w-4xl mx-auto">
-        {/* Banner Alert if any */}
+      <div className="max-w-6xl mx-auto space-y-7">
+        {/* Banner Alert if any action completed */}
         {alertMessage && (
           <div
-            className="mb-6 p-4 rounded-2xl flex items-center justify-between border shadow-sm animate-fade-in"
+            className="p-4 rounded-2xl flex items-center justify-between border shadow-sm animate-fade-in"
             style={{
-              backgroundColor: alertMessage.type === 'success' ? 'rgba(8, 217, 214, 0.12)' : 'rgba(255, 46, 99, 0.08)',
+              backgroundColor:
+                alertMessage.type === 'success'
+                  ? 'rgba(8, 217, 214, 0.12)'
+                  : 'rgba(255, 46, 99, 0.1)',
               borderColor: alertMessage.type === 'success' ? '#08D9D6' : '#FF2E63',
               color: alertMessage.type === 'success' ? '#252A34' : '#FF2E63',
             }}
           >
-            <div className="flex items-center gap-2.5 text-sm font-medium">
-              <CheckCircle2 className="w-5 h-5" style={{ color: alertMessage.type === 'success' ? '#08D9D6' : '#FF2E63' }} />
+            <div className="flex items-center gap-2.5 text-sm font-semibold">
+              <CheckCircle2
+                className="w-5 h-5 flex-shrink-0"
+                style={{ color: alertMessage.type === 'success' ? '#08D9D6' : '#FF2E63' }}
+              />
               <span>{alertMessage.text}</span>
             </div>
             <button
               type="button"
               onClick={() => setAlertMessage(null)}
-              className="text-gray-400 hover:text-gray-600"
+              className="text-gray-400 hover:text-gray-700 p-1 cursor-pointer"
             >
               <X className="w-4 h-4" />
             </button>
           </div>
         )}
 
-        {/* Header matching Image 1: [Company Name] -> agency added when login */}
-        <div className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div>
-            <div className="flex items-center gap-2 mb-1">
-              <h1
-                className="text-3xl sm:text-4xl font-extrabold tracking-tight capitalize"
-                style={{ color: '#252A34' }}
-              >
-                {companyTitle}
-              </h1>
-              <span
-                className="px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wide"
-                style={{
-                  backgroundColor: '#08D9D6',
-                  color: '#252A34',
-                }}
-              >
-                Verified Agency
-              </span>
+        {/* 1. TOP AGENCY ROW (Exact match to User Image Wireframe) */}
+        {/* Left: Circular Avatar (Sky Blue Circle) + Agency Name + Edit Profile link under it */}
+        {/* Right: "Ask Now" interactive button */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-5 bg-white/70 backdrop-blur-xs p-6 rounded-3xl border border-white/60 shadow-xs">
+          <div className="flex items-center gap-4 sm:gap-5">
+            {/* Circular Blue Avatar */}
+            <div
+              className="w-16 h-16 sm:w-20 sm:h-20 rounded-full flex items-center justify-center shadow-md font-black text-2xl sm:text-3xl text-white select-none transition-transform hover:scale-105"
+              style={{
+                background: 'linear-gradient(135deg, #60A5FA 0%, #38BDF8 60%, #08D9D6 100%)',
+                boxShadow: '0 8px 20px -4px rgba(56, 189, 248, 0.4)',
+              }}
+            >
+              {getInitials(companyTitle)}
             </div>
-            <p className="text-sm font-medium text-gray-500">
-              Agency profile registered and authenticated on the Add-an-Ad Network.
-            </p>
+
+            {/* Agency Name & Edit Profile Link */}
+            <div>
+              <div className="flex items-center gap-2.5 flex-wrap">
+                <h1 className="text-2xl sm:text-3xl font-extrabold text-[#252A34] tracking-tight">
+                  {companyTitle}
+                </h1>
+                <span className="text-[10px] font-extrabold px-2.5 py-0.5 rounded-full bg-[#08D9D6]/20 text-[#007573] border border-[#08D9D6]/40 uppercase tracking-wider">
+                  Verified Agency
+                </span>
+              </div>
+
+              {/* "Edit Profile" link/button positioned directly under the avatar/agency name */}
+              <div className="mt-1.5">
+                <button
+                  type="button"
+                  onClick={() => setActiveModal('edit_profile')}
+                  className="inline-flex items-center gap-1.5 text-xs font-bold text-gray-600 hover:text-[#FF2E63] transition-colors cursor-pointer group"
+                >
+                  <Edit3 className="w-3.5 h-3.5 text-[#08D9D6] group-hover:text-[#FF2E63] transition-colors" />
+                  <span className="underline decoration-gray-300 underline-offset-4 group-hover:decoration-[#FF2E63]">
+                    Edit Profile
+                  </span>
+                </button>
+              </div>
+            </div>
           </div>
 
-          <div className="flex items-center gap-2 text-xs text-gray-500">
-            <span className="font-semibold">Client ID:</span>
-            <span className="font-bold px-2 py-0.5 rounded bg-white border" style={{ color: '#252A34', borderColor: 'rgba(37, 42, 52, 0.2)' }}>
-              #{client?.clientID || 1}
-            </span>
+          {/* Right: "Ask Now" Interactive Button */}
+          {/* Arrow Note: By clicking 'Ask Now' user can see the chat interface which interactive popup menu comes as chat interface */}
+          <div>
+            <button
+              type="button"
+              onClick={() => setActiveModal('chat')}
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-2.5 px-6 py-3 rounded-2xl font-extrabold text-sm sm:text-base text-white shadow-md hover:shadow-xl hover:-translate-y-0.5 active:translate-y-0 transition-all duration-200 cursor-pointer group"
+              style={{
+                background: 'linear-gradient(135deg, #252A34 0%, #161B26 100%)',
+                border: '1px solid rgba(8, 217, 214, 0.4)',
+              }}
+              title="Open executive chat interface"
+            >
+              <div className="relative">
+                <MessageSquare className="w-4 h-4 sm:w-5 sm:h-5 text-[#08D9D6] transition-transform group-hover:scale-110" />
+                <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-[#08D9D6] animate-ping" />
+                <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-[#08D9D6]" />
+              </div>
+              <span>Ask Now</span>
+            </button>
           </div>
         </div>
 
-        {/* Wireframe Container: Registered details */}
-        <div
-          className="rounded-[32px] p-6 sm:p-10 shadow-xl border relative transition-all duration-300 mb-8"
-          style={{
-            backgroundColor: '#FFFFFF',
-            borderColor: 'rgba(37, 42, 52, 0.12)',
-            boxShadow:
-              '0 20px 40px -15px rgba(37, 42, 52, 0.1), 0 0 0 1px rgba(37, 42, 52, 0.05)',
-          }}
-        >
-          {/* Subtle palette top line */}
-          <div
-            className="absolute top-0 left-10 right-10 h-1 rounded-b-full opacity-90"
-            style={{
-              background:
-                'linear-gradient(90deg, #08D9D6 0%, #252A34 50%, #FF2E63 100%)',
-            }}
-          />
+        {/* 2. CENTER HERO CAMPAIGN BUTTON (Exact match to User Image Wireframe) */}
+        {/* "Add your Ad Here" centered button */}
+        {/* Arrow Note: By clicking this user can see the campaign adding interface which interactive popup menu comes */}
+        <div className="py-2 flex justify-center">
+          <button
+            type="button"
+            onClick={() => setActiveModal('add_campaign')}
+            className="w-full max-w-xl py-4 sm:py-5 px-6 sm:px-8 rounded-2xl sm:rounded-3xl font-extrabold text-lg sm:text-xl text-[#252A34] bg-white border-2 border-[#252A34] hover:border-[#FF2E63] shadow-md hover:shadow-2xl hover:-translate-y-1 active:translate-y-0 transition-all duration-300 flex items-center justify-between sm:justify-center gap-4 cursor-pointer group relative overflow-hidden"
+          >
+            {/* Background subtle sheen effect */}
+            <div className="absolute inset-0 bg-gradient-to-r from-transparent via-[#08D9D6]/10 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000" />
 
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-6 mb-6 border-b border-gray-100 gap-4">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-[#FF2E63]/10 flex items-center justify-center text-[#FF2E63] group-hover:bg-[#FF2E63] group-hover:text-white transition-colors duration-200">
+                <Megaphone className="w-5 h-5 transition-transform group-hover:scale-110" />
+              </div>
+              <span className="tracking-tight text-center">Add your Ad Here</span>
+            </div>
+
+            <div className="hidden sm:flex items-center gap-1.5 text-xs font-bold text-gray-500 group-hover:text-[#FF2E63] transition-colors">
+              <span>Launch Campaign</span>
+              <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-1" />
+            </div>
+          </button>
+        </div>
+
+        {/* 3. FOUR INTERACTIVE SECTIONS / CARDS (Exact match to User Image Wireframe) */}
+        {/* Arrow Note: By clicking these sections, users(agency) can see a interactive popup menu that displays each section relevent details */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
+          {/* Card 1: [Agency Name] Live Campaign Details */}
+          <div
+            onClick={() => setActiveModal('campaign_details')}
+            className="rounded-2xl sm:rounded-3xl p-5 sm:p-6 bg-white border-2 border-gray-200 hover:border-[#08D9D6] shadow-sm hover:shadow-xl hover:-translate-y-1.5 transition-all duration-300 cursor-pointer flex flex-col justify-between group relative overflow-hidden"
+          >
+            <div className="absolute top-0 left-6 right-6 h-1 rounded-b-full bg-[#08D9D6] opacity-80 group-hover:opacity-100 transition-opacity" />
+
             <div>
-              <h2 className="text-xl font-bold" style={{ color: '#252A34' }}>
-                Agency Registered Details
-              </h2>
-              <p className="text-xs font-medium text-gray-500">
-                These are the company and contact credentials linked to your client account.
+              <div className="w-10 h-10 rounded-2xl bg-[#08D9D6]/15 flex items-center justify-center text-[#008280] mb-3 group-hover:scale-110 transition-transform">
+                <Layers className="w-5 h-5 text-[#008280]" />
+              </div>
+              <h3 className="font-extrabold text-base sm:text-lg text-[#252A34] leading-snug group-hover:text-[#008280] transition-colors">
+                [{companyTitle}] Live Campaign Details
+              </h3>
+              <p className="text-xs text-gray-500 mt-1 line-clamp-2">
+                Active channel distributions, campaign progress, edit & terminate placements.
               </p>
             </div>
 
-            {!isEditing && (
-              <button
-                type="button"
-                onClick={() => setIsEditing(true)}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold border transition-all duration-200 hover:shadow-sm cursor-pointer"
-                style={{
-                  backgroundColor: '#FFFFFF',
-                  borderColor: '#08D9D6',
-                  color: '#252A34',
-                }}
-              >
-                <Edit3 className="w-4 h-4" style={{ color: '#FF2E63' }} />
-                Edit Profile
-              </button>
-            )}
+            <div className="mt-5 pt-3 border-t border-gray-100 flex items-center justify-between text-xs">
+              <span className="font-bold text-gray-700">
+                {campaigns.length} {campaigns.length === 1 ? 'Campaign' : 'Campaigns'}
+              </span>
+              <span className="inline-flex items-center gap-1 font-extrabold text-[#08D9D6] group-hover:translate-x-0.5 transition-transform">
+                <span>View Details</span>
+                <ArrowUpRight className="w-3.5 h-3.5" />
+              </span>
+            </div>
           </div>
 
-          {/* EDIT MODE */}
-          {isEditing ? (
-            <form onSubmit={handleSaveProfile} className="space-y-4">
+          {/* Card 2: Marketing Analytics & Audience Reach */}
+          <div
+            onClick={() => setActiveModal('marketing')}
+            className="rounded-2xl sm:rounded-3xl p-5 sm:p-6 bg-white border-2 border-gray-200 hover:border-[#FF2E63] shadow-sm hover:shadow-xl hover:-translate-y-1.5 transition-all duration-300 cursor-pointer flex flex-col justify-between group relative overflow-hidden"
+          >
+            <div className="absolute top-0 left-6 right-6 h-1 rounded-b-full bg-[#FF2E63] opacity-80 group-hover:opacity-100 transition-opacity" />
+
+            <div>
+              <div className="w-10 h-10 rounded-2xl bg-[#FF2E63]/15 flex items-center justify-center text-[#FF2E63] mb-3 group-hover:scale-110 transition-transform">
+                <TrendingUp className="w-5 h-5 text-[#FF2E63]" />
+              </div>
+              <h3 className="font-extrabold text-base sm:text-lg text-[#252A34] leading-snug group-hover:text-[#FF2E63] transition-colors">
+                Marketing Analytics & Audience Reach
+              </h3>
+              <p className="text-xs text-gray-500 mt-1 line-clamp-2">
+                Audited impression data, click conversion analytics, and audience reach graphs.
+              </p>
+            </div>
+
+            <div className="mt-5 pt-3 border-t border-gray-100 flex items-center justify-between text-xs">
+              <span className="font-bold text-gray-700">
+                {marketingSummary.views > 0
+                  ? `${marketingSummary.views.toLocaleString()} Views`
+                  : 'Analytics Desk'}
+              </span>
+              <span className="inline-flex items-center gap-1 font-extrabold text-[#FF2E63] group-hover:translate-x-0.5 transition-transform">
+                <span>View Details</span>
+                <ArrowUpRight className="w-3.5 h-3.5" />
+              </span>
+            </div>
+          </div>
+
+          {/* Card 3: Advertising Tasks & Production Coordination */}
+          <div
+            onClick={() => setActiveModal('tasks')}
+            className="rounded-2xl sm:rounded-3xl p-5 sm:p-6 bg-white border-2 border-gray-200 hover:border-[#3B82F6] shadow-sm hover:shadow-xl hover:-translate-y-1.5 transition-all duration-300 cursor-pointer flex flex-col justify-between group relative overflow-hidden"
+          >
+            <div className="absolute top-0 left-6 right-6 h-1 rounded-b-full bg-[#3B82F6] opacity-80 group-hover:opacity-100 transition-opacity" />
+
+            <div>
+              <div className="w-10 h-10 rounded-2xl bg-[#3B82F6]/15 flex items-center justify-center text-[#3B82F6] mb-3 group-hover:scale-110 transition-transform">
+                <Briefcase className="w-5 h-5 text-[#3B82F6]" />
+              </div>
+              <h3 className="font-extrabold text-base sm:text-lg text-[#252A34] leading-snug group-hover:text-[#3B82F6] transition-colors">
+                Advertising Tasks & Production Coordination
+              </h3>
+              <p className="text-xs text-gray-500 mt-1 line-clamp-2">
+                Submit graphic and creative tasks, track production workflows, and deadlines.
+              </p>
+            </div>
+
+            <div className="mt-5 pt-3 border-t border-gray-100 flex items-center justify-between text-xs">
+              <span className="font-bold text-gray-700">
+                {taskSummary.count > 0 ? `${taskSummary.count} Active Tasks` : 'Task Center'}
+              </span>
+              <span className="inline-flex items-center gap-1 font-extrabold text-[#3B82F6] group-hover:translate-x-0.5 transition-transform">
+                <span>View Details</span>
+                <ArrowUpRight className="w-3.5 h-3.5" />
+              </span>
+            </div>
+          </div>
+
+          {/* Card 4: Client Billing & Invoices Portal */}
+          <div
+            onClick={() => setActiveModal('billing')}
+            className="rounded-2xl sm:rounded-3xl p-5 sm:p-6 bg-white border-2 border-gray-200 hover:border-[#10B981] shadow-sm hover:shadow-xl hover:-translate-y-1.5 transition-all duration-300 cursor-pointer flex flex-col justify-between group relative overflow-hidden"
+          >
+            <div className="absolute top-0 left-6 right-6 h-1 rounded-b-full bg-[#10B981] opacity-80 group-hover:opacity-100 transition-opacity" />
+
+            <div>
+              <div className="w-10 h-10 rounded-2xl bg-[#10B981]/15 flex items-center justify-center text-[#10B981] mb-3 group-hover:scale-110 transition-transform">
+                <Receipt className="w-5 h-5 text-[#10B981]" />
+              </div>
+              <h3 className="font-extrabold text-base sm:text-lg text-[#252A34] leading-snug group-hover:text-[#10B981] transition-colors">
+                Client Billing & Invoices Portal
+              </h3>
+              <p className="text-xs text-gray-500 mt-1 line-clamp-2">
+                Download payment slips, settle platform invoices, and inspect rate cards.
+              </p>
+            </div>
+
+            <div className="mt-5 pt-3 border-t border-gray-100 flex items-center justify-between text-xs">
+              <span className="font-bold text-gray-700">
+                {invoiceSummary.count > 0 ? `${invoiceSummary.count} Invoices` : 'Billing Desk'}
+              </span>
+              <span className="inline-flex items-center gap-1 font-extrabold text-[#10B981] group-hover:translate-x-0.5 transition-transform">
+                <span>View Details</span>
+                <ArrowUpRight className="w-3.5 h-3.5" />
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* 4. BOTTOM ACTION: "Add a Review" (Exact match to User Image Wireframe) */}
+        {/* Positioned on the right side below the cards */}
+        {/* Arrow Note: By clicking this user can see the review interface which interactive popup menu comes */}
+        <div className="flex justify-end pt-2 pb-6">
+          <button
+            type="button"
+            onClick={() => setActiveModal('review')}
+            className="inline-flex items-center gap-2 px-6 py-3 rounded-2xl font-extrabold text-sm text-[#252A34] bg-white border-2 border-[#252A34] hover:border-[#FF2E63] shadow-md hover:shadow-xl hover:-translate-y-0.5 active:translate-y-0 transition-all duration-200 cursor-pointer group"
+          >
+            <Star className="w-4 h-4 fill-amber-400 text-amber-500 group-hover:rotate-12 transition-transform duration-200" />
+            <span>Add a Review</span>
+            <Sparkles className="w-3.5 h-3.5 text-[#08D9D6]" />
+          </button>
+        </div>
+      </div>
+
+      {/* ========================================================================= */}
+      {/* 5. INTERACTIVE POPUP MENUS & MODALS */}
+      {/* ========================================================================= */}
+
+      {/* MODAL 1: "Ask Now" Chat Interface Popup Menu */}
+      {activeModal === 'chat' && (
+        <div
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-md flex items-center justify-center p-3 sm:p-6 overflow-y-auto animate-modal-backdrop"
+          onClick={() => setActiveModal(null)}
+        >
+          <div
+            className="bg-white rounded-[32px] w-full max-w-4xl shadow-2xl border border-gray-200 relative my-auto overflow-hidden flex flex-col max-h-[90vh] animate-modal-content"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Top Accent Strip */}
+            <div className="h-1.5 w-full bg-gradient-to-r from-[#08D9D6] via-[#252A34] to-[#FF2E63]" />
+
+            {/* Modal Header */}
+            <div className="p-5 sm:p-6 border-b border-gray-100 flex items-center justify-between gap-3 bg-gray-50/80">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-[#08D9D6]/20 flex items-center justify-center text-[#252A34]">
+                  <MessageSquare className="w-5 h-5 text-[#08D9D6]" />
+                </div>
+                <div>
+                  <h3 className="text-lg sm:text-xl font-extrabold text-[#252A34] flex items-center gap-2">
+                    Agency Executive & Admin Live Chat
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+                  </h3>
+                  <p className="text-xs text-gray-500">
+                    Direct inquiry channel with operations, marketing, finance, and creative teams.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveModal(null)}
+                className="p-2 rounded-xl text-gray-400 hover:text-gray-700 hover:bg-gray-200/60 transition-colors cursor-pointer"
+                title="Close chat popup"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body: ClientChatInterface */}
+            <div className="p-4 sm:p-6 overflow-y-auto flex-1">
+              <ClientChatInterface clientId={client?.clientID || 1} clientName={companyTitle} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 2: "Add your Ad Here" Campaign Creation Popup Menu */}
+      {activeModal === 'add_campaign' && (
+        <div
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-md flex items-center justify-center p-3 sm:p-6 overflow-y-auto animate-modal-backdrop"
+          onClick={() => setActiveModal(null)}
+        >
+          <div
+            className="bg-white rounded-[32px] w-full max-w-2xl shadow-2xl border border-gray-200 relative my-auto overflow-hidden flex flex-col max-h-[92vh] animate-modal-content"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Top Accent Strip */}
+            <div className="h-1.5 w-full bg-gradient-to-r from-[#FF2E63] via-[#08D9D6] to-[#252A34]" />
+
+            {/* Modal Header */}
+            <div className="p-5 sm:p-6 border-b border-gray-100 flex items-center justify-between gap-3 bg-gray-50/80">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-[#FF2E63]/15 flex items-center justify-center text-[#FF2E63]">
+                  <Megaphone className="w-5 h-5 text-[#FF2E63]" />
+                </div>
+                <div>
+                  <h3 className="text-lg sm:text-xl font-extrabold text-[#252A34]">
+                    Add your Campaign Here
+                  </h3>
+                  <p className="text-xs text-gray-500">
+                    Select target channels, calculate prices dynamically, and launch placements.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveModal(null)}
+                className="p-2 rounded-xl text-gray-400 hover:text-gray-700 hover:bg-gray-200/60 transition-colors cursor-pointer"
+                title="Close campaign popup"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body: Interactive Campaign Creation Form */}
+            <form onSubmit={handleCreateCampaignSubmit} className="p-5 sm:p-7 overflow-y-auto space-y-5">
+              {/* Campaign Title */}
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider mb-1.5 text-[#252A34]">
+                  Campaign Name <span className="text-[#FF2E63]">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Q4 Festive Multi-Platform Boost"
+                  value={newCampaignForm.campaignName}
+                  onChange={(e) =>
+                    setNewCampaignForm((prev) => ({ ...prev, campaignName: e.target.value }))
+                  }
+                  className="w-full px-4 py-3 rounded-xl border border-gray-300 text-sm focus:ring-2 focus:ring-[#08D9D6] focus:border-[#08D9D6] bg-white text-[#252A34]"
+                />
+              </div>
+
+              {/* Campaign Type & Status Grid */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider mb-1.5" style={{ color: '#252A34' }}>
+                  <label className="block text-xs font-bold uppercase tracking-wider mb-1.5 text-[#252A34]">
+                    Campaign Type
+                  </label>
+                  <select
+                    value={newCampaignForm.campaignType}
+                    onChange={(e) =>
+                      setNewCampaignForm((prev) => ({ ...prev, campaignType: e.target.value }))
+                    }
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-gray-300 text-sm focus:ring-2 focus:ring-[#08D9D6] bg-white text-[#252A34] font-medium"
+                  >
+                    {DEFAULT_CAMPAIGN_TYPES.map((type) => (
+                      <option key={type} value={type}>
+                        {type}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider mb-1.5 text-[#252A34]">
+                    Initial Status
+                  </label>
+                  <select
+                    value={newCampaignForm.status}
+                    onChange={(e) =>
+                      setNewCampaignForm((prev) => ({ ...prev, status: e.target.value }))
+                    }
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-gray-300 text-sm focus:ring-2 focus:ring-[#08D9D6] bg-white text-[#252A34] font-medium"
+                  >
+                    <option value="ACTIVE">ACTIVE (Immediate Launch)</option>
+                    <option value="PAUSED">PAUSED (Draft Setup)</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Channel Selector Cards */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="block text-xs font-bold uppercase tracking-wider text-[#252A34]">
+                    Select Advertising Platforms & Rates <span className="text-[#FF2E63]">*</span>
+                  </label>
+                  <span className="text-[11px] text-gray-500 font-medium">
+                    {newCampaignForm.selectedChannels.length} selected
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                  {Object.entries(DEFAULT_RATE_CARD).map(([channel, rate]) => {
+                    const isSelected = newCampaignForm.selectedChannels.includes(channel);
+                    return (
+                      <button
+                        key={channel}
+                        type="button"
+                        onClick={() => toggleNewCampaignChannel(channel)}
+                        className={`p-3 rounded-2xl text-left border transition-all cursor-pointer flex flex-col justify-between ${
+                          isSelected
+                            ? 'bg-[#252A34] text-white border-[#252A34] shadow-md scale-101'
+                            : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100 hover:border-gray-300'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between w-full">
+                          <span className="text-xs font-bold truncate">{channel}</span>
+                          <span
+                            className={`w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-bold ${
+                              isSelected
+                                ? 'bg-[#08D9D6] text-[#252A34]'
+                                : 'border border-gray-300'
+                            }`}
+                          >
+                            {isSelected ? '✓' : ''}
+                          </span>
+                        </div>
+                        <span
+                          className={`text-xs font-extrabold mt-2 ${
+                            isSelected ? 'text-[#08D9D6]' : 'text-gray-600'
+                          }`}
+                        >
+                          Rs. {rate.toLocaleString()}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Price Calculation Summary Banner */}
+              <div className="p-4 rounded-2xl bg-[#08D9D6]/10 border border-[#08D9D6]/30 flex items-center justify-between">
+                <div>
+                  <span className="text-xs font-semibold text-gray-600 block">
+                    Calculated Total Budget
+                  </span>
+                  <span className="text-[11px] text-gray-500">
+                    Transparent pricing based on current platform rate card
+                  </span>
+                </div>
+                <div className="text-right">
+                  <span className="text-xl sm:text-2xl font-black text-[#FF2E63]">
+                    Rs. {Number(newCampaignPrice).toLocaleString()}
+                  </span>
+                </div>
+              </div>
+
+              {/* Form Buttons */}
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="submit"
+                  disabled={isCreatingCampaign}
+                  className="flex-1 py-3 px-5 rounded-xl font-bold text-sm text-[#252A34] shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
+                  style={{
+                    background: 'linear-gradient(135deg, #08D9D6 0%, #00b4b1 100%)',
+                  }}
+                >
+                  {isCreatingCampaign ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Publishing Campaign...
+                    </>
+                  ) : (
+                    <>
+                      <Megaphone className="w-4 h-4" />
+                      Publish Campaign
+                    </>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveModal(null)}
+                  disabled={isCreatingCampaign}
+                  className="px-5 py-3 rounded-xl font-semibold text-sm border border-gray-300 hover:bg-gray-100 transition-colors text-gray-600 cursor-pointer"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 3: Card 1 - [Agency Name] Live Campaign Details Popup Menu */}
+      {activeModal === 'campaign_details' && (
+        <div
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-md flex items-center justify-center p-3 sm:p-6 overflow-y-auto animate-modal-backdrop"
+          onClick={() => setActiveModal(null)}
+        >
+          <div
+            className="bg-white rounded-[32px] w-full max-w-5xl shadow-2xl border border-gray-200 relative my-auto overflow-hidden flex flex-col max-h-[92vh] animate-modal-content"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Top Accent Strip */}
+            <div className="h-1.5 w-full bg-gradient-to-r from-[#08D9D6] via-[#252A34] to-[#08D9D6]" />
+
+            {/* Modal Header */}
+            <div className="p-5 sm:p-6 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-gray-50/80">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-[#08D9D6]/20 flex items-center justify-center text-[#008280]">
+                  <Layers className="w-5 h-5 text-[#008280]" />
+                </div>
+                <div>
+                  <h3 className="text-lg sm:text-xl font-extrabold text-[#252A34]">
+                    [{companyTitle}] Live Campaign Details
+                  </h3>
+                  <p className="text-xs text-gray-500">
+                    Total Spend: Rs. {totalCampaignSpend.toLocaleString()} • {campaigns.length} campaigns listed
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setActiveModal('add_campaign')}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-[#252A34] shadow-xs hover:shadow transition-all cursor-pointer"
+                  style={{
+                    background: 'linear-gradient(135deg, #08D9D6 0%, #00b4b1 100%)',
+                  }}
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  + Post New Campaign
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveModal(null)}
+                  className="p-2 rounded-xl text-gray-400 hover:text-gray-700 hover:bg-gray-200/60 transition-colors cursor-pointer"
+                  title="Close popup"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Filters Bar */}
+            <div className="px-5 sm:px-6 py-3 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white">
+              {/* Status Filter */}
+              <div className="flex items-center gap-1.5 overflow-x-auto text-xs">
+                <span className="text-gray-400 mr-1 font-semibold flex items-center gap-1">
+                  <Filter className="w-3 h-3 text-[#08D9D6]" /> Status:
+                </span>
+                {['ALL', 'ACTIVE', 'PAUSED', 'COMPLETED'].map((st) => (
+                  <button
+                    key={st}
+                    type="button"
+                    onClick={() => setCampaignStatusFilter(st)}
+                    className={`px-3 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+                      campaignStatusFilter === st
+                        ? 'bg-[#252A34] text-white shadow-2xs'
+                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    }`}
+                  >
+                    {st}
+                  </button>
+                ))}
+              </div>
+
+              {/* Search input */}
+              <div className="relative">
+                <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Search campaigns..."
+                  value={campaignSearchQuery}
+                  onChange={(e) => setCampaignSearchQuery(e.target.value)}
+                  className="pl-8 pr-3 py-1.5 rounded-xl border border-gray-200 text-xs w-full sm:w-56 focus:ring-1 focus:ring-[#08D9D6] bg-gray-50 focus:bg-white"
+                />
+              </div>
+            </div>
+
+            {/* Campaigns Grid */}
+            <div className="p-5 sm:p-6 overflow-y-auto flex-1">
+              {filteredCampaigns.length === 0 ? (
+                <div className="text-center py-12 px-4">
+                  <div className="w-14 h-14 mx-auto rounded-2xl bg-[#08D9D6]/15 flex items-center justify-center mb-3">
+                    <Megaphone className="w-7 h-7 text-[#08D9D6]" />
+                  </div>
+                  <h4 className="text-base font-bold text-gray-800 mb-1">No Campaigns Found</h4>
+                  <p className="text-xs text-gray-500 max-w-sm mx-auto mb-4">
+                    {campaignSearchQuery
+                      ? 'No campaigns match your search query.'
+                      : 'Launch your first advertising campaign across YouTube, Meta, Google, and on-site networks.'}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setActiveModal('add_campaign')}
+                    className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold text-[#252A34] shadow-sm hover:shadow cursor-pointer"
+                    style={{
+                      background: 'linear-gradient(135deg, #08D9D6 0%, #00b4b1 100%)',
+                    }}
+                  >
+                    Create New Campaign
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {filteredCampaigns.map((camp) => {
+                    const campId = camp.campaignId || camp.id;
+                    const channelArray = Array.isArray(camp.selectedChannels)
+                      ? camp.selectedChannels
+                      : typeof camp.selectedChannels === 'string'
+                      ? camp.selectedChannels.split(',').map((s) => s.trim()).filter(Boolean)
+                      : [];
+
+                    const statusStyle =
+                      camp.status === 'ACTIVE'
+                        ? 'bg-[#08D9D6]/20 text-[#007573] border-[#08D9D6]/40'
+                        : camp.status === 'PAUSED'
+                        ? 'bg-amber-100 text-amber-800 border-amber-300'
+                        : camp.status === 'COMPLETED'
+                        ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                        : 'bg-red-100 text-red-800 border-red-300';
+
+                    return (
+                      <div
+                        key={campId}
+                        className="p-5 rounded-2xl border border-gray-200 bg-gray-50/70 hover:bg-white hover:shadow-md transition-all flex flex-col justify-between"
+                      >
+                        <div>
+                          <div className="flex items-start justify-between gap-2 mb-2">
+                            <div>
+                              <span className="font-extrabold text-base text-gray-900 block">
+                                {camp.campaignName || 'Untitled Campaign'}
+                              </span>
+                              <span className="text-xs font-semibold text-gray-500 flex items-center gap-1 mt-0.5">
+                                <Tag className="w-3 h-3 text-[#FF2E63]" />
+                                {camp.campaignType || 'Standard Campaign'}
+                              </span>
+                            </div>
+                            <span
+                              className={`px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase border ${statusStyle}`}
+                            >
+                              {camp.status || 'ACTIVE'}
+                            </span>
+                          </div>
+
+                          {/* Channel Chips */}
+                          <div className="my-3">
+                            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1">
+                              Allocated Channels
+                            </span>
+                            <div className="flex flex-wrap gap-1.5">
+                              {channelArray.length > 0 ? (
+                                channelArray.map((ch, idx) => (
+                                  <span
+                                    key={idx}
+                                    className="inline-flex items-center text-xs font-semibold px-2 py-0.5 rounded-lg bg-white border border-gray-200 text-gray-700 shadow-2xs"
+                                  >
+                                    {ch}
+                                  </span>
+                                ))
+                              ) : (
+                                <span className="text-xs text-gray-400 italic">No channels listed</span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div>
+                          {/* Price & Action Buttons */}
+                          <div className="pt-3 mt-2 border-t border-gray-200 flex items-center justify-between text-xs">
+                            <div>
+                              <span className="text-gray-400 block text-[10px] font-bold uppercase tracking-wider">
+                                Investment
+                              </span>
+                              <span className="font-extrabold text-sm sm:text-base text-[#FF2E63]">
+                                Rs. {Number(camp.campaignPrices || 0).toLocaleString()}
+                              </span>
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => handleOpenEditCampaign(camp)}
+                                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl font-bold text-xs bg-white hover:bg-gray-100 text-[#252A34] border border-gray-300 hover:border-[#08D9D6] transition-all cursor-pointer shadow-2xs"
+                                title="Edit campaign"
+                              >
+                                <Edit3 className="w-3.5 h-3.5 text-[#08D9D6]" />
+                                <span>Edit</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setDeletingCampaign(camp)}
+                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl font-bold text-xs bg-white hover:bg-red-50 text-red-600 border border-red-200 hover:border-red-400 transition-all cursor-pointer shadow-2xs"
+                                title="Delete campaign"
+                              >
+                                <Trash2 className="w-3.5 h-3.5 text-red-500" />
+                                <span>Delete</span>
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 4: Card 2 - Marketing Analytics & Audience Reach Popup Menu */}
+      {activeModal === 'marketing' && (
+        <div
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-md flex items-center justify-center p-3 sm:p-6 overflow-y-auto animate-modal-backdrop"
+          onClick={() => setActiveModal(null)}
+        >
+          <div
+            className="bg-white rounded-[32px] w-full max-w-5xl shadow-2xl border border-gray-200 relative my-auto overflow-hidden flex flex-col max-h-[92vh] animate-modal-content"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Top Accent Strip */}
+            <div className="h-1.5 w-full bg-gradient-to-r from-[#FF2E63] via-[#08D9D6] to-[#252A34]" />
+
+            {/* Modal Header */}
+            <div className="p-5 sm:p-6 border-b border-gray-100 flex items-center justify-between gap-3 bg-gray-50/80">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-[#FF2E63]/15 flex items-center justify-center text-[#FF2E63]">
+                  <TrendingUp className="w-5 h-5 text-[#FF2E63]" />
+                </div>
+                <div>
+                  <h3 className="text-lg sm:text-xl font-extrabold text-[#252A34]">
+                    Marketing Analytics & Audience Reach
+                  </h3>
+                  <p className="text-xs text-gray-500">
+                    Real-time impressions telemetry, conversion click rates, and campaign reach.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveModal(null)}
+                className="p-2 rounded-xl text-gray-400 hover:text-gray-700 hover:bg-gray-200/60 transition-colors cursor-pointer"
+                title="Close popup"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body: ClientMarketingSection */}
+            <div className="p-4 sm:p-6 overflow-y-auto flex-1">
+              <ClientMarketingSection clientId={client?.clientID || 1} companyName={companyTitle} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 5: Card 3 - Advertising Tasks & Production Coordination Popup Menu */}
+      {activeModal === 'tasks' && (
+        <div
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-md flex items-center justify-center p-3 sm:p-6 overflow-y-auto animate-modal-backdrop"
+          onClick={() => setActiveModal(null)}
+        >
+          <div
+            className="bg-white rounded-[32px] w-full max-w-5xl shadow-2xl border border-gray-200 relative my-auto overflow-hidden flex flex-col max-h-[92vh] animate-modal-content"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Top Accent Strip */}
+            <div className="h-1.5 w-full bg-gradient-to-r from-[#3B82F6] via-[#08D9D6] to-[#252A34]" />
+
+            {/* Modal Header */}
+            <div className="p-5 sm:p-6 border-b border-gray-100 flex items-center justify-between gap-3 bg-gray-50/80">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-[#3B82F6]/15 flex items-center justify-center text-[#3B82F6]">
+                  <Briefcase className="w-5 h-5 text-[#3B82F6]" />
+                </div>
+                <div>
+                  <h3 className="text-lg sm:text-xl font-extrabold text-[#252A34]">
+                    Advertising Tasks & Production Coordination
+                  </h3>
+                  <p className="text-xs text-gray-500">
+                    Submit creative briefs, track graphic design & video production workflows.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveModal(null)}
+                className="p-2 rounded-xl text-gray-400 hover:text-gray-700 hover:bg-gray-200/60 transition-colors cursor-pointer"
+                title="Close popup"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body: ClientTaskSubmissionSection */}
+            <div className="p-4 sm:p-6 overflow-y-auto flex-1">
+              <ClientTaskSubmissionSection clientId={client?.clientID || 1} clientName={companyTitle} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 6: Card 4 - Client Billing & Invoices Portal Popup Menu */}
+      {activeModal === 'billing' && (
+        <div
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-md flex items-center justify-center p-3 sm:p-6 overflow-y-auto animate-modal-backdrop"
+          onClick={() => setActiveModal(null)}
+        >
+          <div
+            className="bg-white rounded-[32px] w-full max-w-5xl shadow-2xl border border-gray-200 relative my-auto overflow-hidden flex flex-col max-h-[92vh] animate-modal-content"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Top Accent Strip */}
+            <div className="h-1.5 w-full bg-gradient-to-r from-[#10B981] via-[#08D9D6] to-[#252A34]" />
+
+            {/* Modal Header */}
+            <div className="p-5 sm:p-6 border-b border-gray-100 flex items-center justify-between gap-3 bg-gray-50/80">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-[#10B981]/15 flex items-center justify-center text-[#10B981]">
+                  <Receipt className="w-5 h-5 text-[#10B981]" />
+                </div>
+                <div>
+                  <h3 className="text-lg sm:text-xl font-extrabold text-[#252A34]">
+                    Client Billing & Invoices Portal
+                  </h3>
+                  <p className="text-xs text-gray-500">
+                    Settle invoices online, print official receipts, and review campaign billings.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveModal(null)}
+                className="p-2 rounded-xl text-gray-400 hover:text-gray-700 hover:bg-gray-200/60 transition-colors cursor-pointer"
+                title="Close popup"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body: ClientInvoicesSection */}
+            <div className="p-4 sm:p-6 overflow-y-auto flex-1">
+              <ClientInvoicesSection clientId={client?.clientID || 1} companyName={companyTitle} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 7: "Add a Review" Review Interface Popup Menu */}
+      {activeModal === 'review' && (
+        <div
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-md flex items-center justify-center p-3 sm:p-6 overflow-y-auto animate-modal-backdrop"
+          onClick={() => setActiveModal(null)}
+        >
+          <div
+            className="bg-white rounded-[32px] w-full max-w-5xl shadow-2xl border border-gray-200 relative my-auto overflow-hidden flex flex-col max-h-[92vh] animate-modal-content"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Top Accent Strip */}
+            <div className="h-1.5 w-full bg-gradient-to-r from-amber-400 via-[#08D9D6] to-[#FF2E63]" />
+
+            {/* Modal Header */}
+            <div className="p-5 sm:p-6 border-b border-gray-100 flex items-center justify-between gap-3 bg-gray-50/80">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-amber-100 flex items-center justify-center text-amber-600">
+                  <Star className="w-5 h-5 fill-amber-400 text-amber-500" />
+                </div>
+                <div>
+                  <h3 className="text-lg sm:text-xl font-extrabold text-[#252A34]">
+                    Add a Review & Administrator Feedback
+                  </h3>
+                  <p className="text-xs text-gray-500">
+                    Submit verified feedback, rate platform services, and track sent ratings.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveModal(null)}
+                className="p-2 rounded-xl text-gray-400 hover:text-gray-700 hover:bg-gray-200/60 transition-colors cursor-pointer"
+                title="Close popup"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body: ReviewInterface */}
+            <div className="p-4 sm:p-6 overflow-y-auto flex-1">
+              <ReviewInterface
+                clientId={client?.clientID || 1}
+                clientName={companyTitle}
+                reviewerName={reviewerName}
+                campaigns={campaigns}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 8: "Edit Profile" Popup Menu */}
+      {activeModal === 'edit_profile' && (
+        <div
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-md flex items-center justify-center p-3 sm:p-6 overflow-y-auto animate-modal-backdrop"
+          onClick={() => setActiveModal(null)}
+        >
+          <div
+            className="bg-white rounded-[32px] w-full max-w-xl shadow-2xl border border-gray-200 relative my-auto overflow-hidden flex flex-col max-h-[92vh] animate-modal-content"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Top Accent Strip */}
+            <div className="h-1.5 w-full bg-gradient-to-r from-[#08D9D6] via-[#252A34] to-[#FF2E63]" />
+
+            {/* Modal Header */}
+            <div className="p-5 sm:p-6 border-b border-gray-100 flex items-center justify-between gap-3 bg-gray-50/80">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-[#08D9D6]/20 flex items-center justify-center text-[#252A34]">
+                  <Edit3 className="w-5 h-5 text-[#08D9D6]" />
+                </div>
+                <div>
+                  <h3 className="text-lg sm:text-xl font-extrabold text-[#252A34]">
+                    Edit Agency Profile
+                  </h3>
+                  <p className="text-xs text-gray-500">
+                    Update your agency credentials, company description, and password.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveModal(null)}
+                className="p-2 rounded-xl text-gray-400 hover:text-gray-700 hover:bg-gray-200/60 transition-colors cursor-pointer"
+                title="Close popup"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body: Edit Profile Form */}
+            <form onSubmit={handleSaveProfile} className="p-5 sm:p-7 overflow-y-auto space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider mb-1.5 text-[#252A34]">
                     First Name
                   </label>
                   <input
@@ -540,13 +1552,11 @@ export default function ClientHome({ onPostAdvertisement, onLogout }) {
                     value={editForm.firstName}
                     onChange={handleEditChange}
                     required
-                    className="w-full px-3.5 py-2.5 rounded-xl border text-sm transition-all focus:ring-2 focus:ring-[#08D9D6] bg-white"
-                    style={{ borderColor: 'rgba(37, 42, 52, 0.2)', color: '#252A34' }}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-gray-300 text-sm focus:ring-2 focus:ring-[#08D9D6] bg-white text-[#252A34]"
                   />
                 </div>
-
                 <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider mb-1.5" style={{ color: '#252A34' }}>
+                  <label className="block text-xs font-bold uppercase tracking-wider mb-1.5 text-[#252A34]">
                     Last Name
                   </label>
                   <input
@@ -555,15 +1565,14 @@ export default function ClientHome({ onPostAdvertisement, onLogout }) {
                     value={editForm.lastName}
                     onChange={handleEditChange}
                     required
-                    className="w-full px-3.5 py-2.5 rounded-xl border text-sm transition-all focus:ring-2 focus:ring-[#08D9D6] bg-white"
-                    style={{ borderColor: 'rgba(37, 42, 52, 0.2)', color: '#252A34' }}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-gray-300 text-sm focus:ring-2 focus:ring-[#08D9D6] bg-white text-[#252A34]"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-bold uppercase tracking-wider mb-1.5" style={{ color: '#252A34' }}>
-                  Company Name
+                <label className="block text-xs font-bold uppercase tracking-wider mb-1.5 text-[#252A34]">
+                  Company / Agency Name
                 </label>
                 <input
                   type="text"
@@ -571,13 +1580,12 @@ export default function ClientHome({ onPostAdvertisement, onLogout }) {
                   value={editForm.companyName}
                   onChange={handleEditChange}
                   required
-                  className="w-full px-3.5 py-2.5 rounded-xl border text-sm transition-all focus:ring-2 focus:ring-[#08D9D6] bg-white"
-                  style={{ borderColor: 'rgba(37, 42, 52, 0.2)', color: '#252A34' }}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-gray-300 text-sm focus:ring-2 focus:ring-[#08D9D6] bg-white text-[#252A34]"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold uppercase tracking-wider mb-1.5" style={{ color: '#252A34' }}>
+                <label className="block text-xs font-bold uppercase tracking-wider mb-1.5 text-[#252A34]">
                   Contact Number
                 </label>
                 <input
@@ -586,28 +1594,26 @@ export default function ClientHome({ onPostAdvertisement, onLogout }) {
                   value={editForm.contactNumber}
                   onChange={handleEditChange}
                   placeholder="+1 (555) 000-0000"
-                  className="w-full px-3.5 py-2.5 rounded-xl border text-sm transition-all focus:ring-2 focus:ring-[#08D9D6] bg-white"
-                  style={{ borderColor: 'rgba(37, 42, 52, 0.2)', color: '#252A34' }}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-gray-300 text-sm focus:ring-2 focus:ring-[#08D9D6] bg-white text-[#252A34]"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold uppercase tracking-wider mb-1.5" style={{ color: '#252A34' }}>
-                  Brief Description About Company
+                <label className="block text-xs font-bold uppercase tracking-wider mb-1.5 text-[#252A34]">
+                  Brief Description About Agency
                 </label>
                 <textarea
                   name="companyDetails"
                   value={editForm.companyDetails}
                   onChange={handleEditChange}
                   rows="3"
-                  className="w-full px-3.5 py-2.5 rounded-xl border text-sm transition-all focus:ring-2 focus:ring-[#08D9D6] bg-white resize-none"
-                  style={{ borderColor: 'rgba(37, 42, 52, 0.2)', color: '#252A34' }}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-gray-300 text-sm focus:ring-2 focus:ring-[#08D9D6] bg-white text-[#252A34] resize-none"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold uppercase tracking-wider mb-1.5" style={{ color: '#252A34' }}>
-                  New Password <span className="text-gray-400 font-normal lowercase">(leave blank to keep current)</span>
+                <label className="block text-xs font-bold uppercase tracking-wider mb-1.5 text-[#252A34]">
+                  New Password <span className="text-gray-400 font-normal lowercase">(optional)</span>
                 </label>
                 <div className="relative">
                   <input
@@ -616,13 +1622,12 @@ export default function ClientHome({ onPostAdvertisement, onLogout }) {
                     value={editForm.password}
                     onChange={handleEditChange}
                     placeholder="Enter new password (optional)"
-                    className="w-full px-3.5 pr-10 py-2.5 rounded-xl border text-sm transition-all focus:ring-2 focus:ring-[#08D9D6] bg-white"
-                    style={{ borderColor: 'rgba(37, 42, 52, 0.2)', color: '#252A34' }}
+                    className="w-full px-3.5 pr-10 py-2.5 rounded-xl border border-gray-300 text-sm focus:ring-2 focus:ring-[#08D9D6] bg-white text-[#252A34]"
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400"
+                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600"
                   >
                     {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
@@ -632,386 +1637,50 @@ export default function ClientHome({ onPostAdvertisement, onLogout }) {
               <div className="flex gap-3 pt-3">
                 <button
                   type="submit"
-                  disabled={isSaving}
-                  className="px-6 py-2.5 rounded-xl font-bold text-sm text-[#252A34] shadow-md transition-all duration-200 inline-flex items-center gap-2 cursor-pointer"
+                  disabled={isSavingProfile}
+                  className="flex-1 py-3 px-5 rounded-xl font-bold text-sm text-[#252A34] shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
                   style={{
                     background: 'linear-gradient(135deg, #08D9D6 0%, #00b4b1 100%)',
                   }}
                 >
-                  {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                  Save Changes
+                  {isSavingProfile ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Saving Updates...
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-4 h-4" />
+                      Save Changes
+                    </>
+                  )}
                 </button>
                 <button
                   type="button"
                   onClick={() => {
-                    initForm(client);
-                    setIsEditing(false);
+                    initEditForm(client);
+                    setActiveModal(null);
                   }}
-                  className="px-5 py-2.5 rounded-xl font-semibold text-sm border hover:bg-gray-100 transition-colors text-gray-600"
-                  style={{ borderColor: 'rgba(37, 42, 52, 0.2)' }}
+                  className="px-5 py-3 rounded-xl font-semibold text-sm border border-gray-300 hover:bg-gray-100 transition-colors text-gray-600 cursor-pointer"
                 >
                   Cancel
                 </button>
               </div>
             </form>
-          ) : (
-            /* VIEW MODE - Matches Image 1 Wireframe Fields */
-            <div className="space-y-4">
-              {/* First Name */}
-              <div className="flex flex-col sm:flex-row sm:items-center py-2.5 border-b border-gray-100 gap-1 sm:gap-6">
-                <span className="w-56 text-xs font-bold uppercase tracking-wider flex items-center gap-2" style={{ color: '#252A34' }}>
-                  <User className="w-4 h-4" style={{ color: '#08D9D6' }} />
-                  First Name
-                </span>
-                <span className="text-sm font-semibold text-gray-800">
-                  {client?.firstName || '—'}
-                </span>
-              </div>
-
-              {/* Last Name */}
-              <div className="flex flex-col sm:flex-row sm:items-center py-2.5 border-b border-gray-100 gap-1 sm:gap-6">
-                <span className="w-56 text-xs font-bold uppercase tracking-wider flex items-center gap-2" style={{ color: '#252A34' }}>
-                  <User className="w-4 h-4" style={{ color: '#08D9D6' }} />
-                  Last Name
-                </span>
-                <span className="text-sm font-semibold text-gray-800">
-                  {client?.lastName || '—'}
-                </span>
-              </div>
-
-              {/* Company Name */}
-              <div className="flex flex-col sm:flex-row sm:items-center py-2.5 border-b border-gray-100 gap-1 sm:gap-6">
-                <span className="w-56 text-xs font-bold uppercase tracking-wider flex items-center gap-2" style={{ color: '#252A34' }}>
-                  <Building2 className="w-4 h-4" style={{ color: '#08D9D6' }} />
-                  Company Name
-                </span>
-                <span className="text-sm font-bold" style={{ color: '#252A34' }}>
-                  {client?.companyName || '—'}
-                </span>
-              </div>
-
-              {/* Email Address */}
-              <div className="flex flex-col sm:flex-row sm:items-center py-2.5 border-b border-gray-100 gap-1 sm:gap-6">
-                <span className="w-56 text-xs font-bold uppercase tracking-wider flex items-center gap-2" style={{ color: '#252A34' }}>
-                  <Mail className="w-4 h-4" style={{ color: '#08D9D6' }} />
-                  Email Address
-                </span>
-                <span className="text-sm font-medium text-gray-700">
-                  {client?.email || '—'}
-                </span>
-              </div>
-
-              {/* Password */}
-              <div className="flex flex-col sm:flex-row sm:items-center py-2.5 border-b border-gray-100 gap-1 sm:gap-6">
-                <span className="w-56 text-xs font-bold uppercase tracking-wider flex items-center gap-2" style={{ color: '#252A34' }}>
-                  <Lock className="w-4 h-4" style={{ color: '#08D9D6' }} />
-                  Password
-                </span>
-                <span className="text-sm font-mono tracking-widest text-gray-500">
-                  ••••••••••••
-                </span>
-              </div>
-
-              {/* Contact Number */}
-              <div className="flex flex-col sm:flex-row sm:items-center py-2.5 border-b border-gray-100 gap-1 sm:gap-6">
-                <span className="w-56 text-xs font-bold uppercase tracking-wider flex items-center gap-2" style={{ color: '#252A34' }}>
-                  <Phone className="w-4 h-4" style={{ color: '#08D9D6' }} />
-                  Contact Number
-                </span>
-                <span className="text-sm font-medium text-gray-700">
-                  {client?.contactNumber || 'Not provided'}
-                </span>
-              </div>
-
-              {/* Brief Description About Company */}
-              <div className="flex flex-col sm:flex-row sm:items-start py-2.5 gap-1 sm:gap-6">
-                <span className="w-56 text-xs font-bold uppercase tracking-wider flex items-center gap-2 pt-1" style={{ color: '#252A34' }}>
-                  <FileText className="w-4 h-4" style={{ color: '#08D9D6' }} />
-                  Brief Description About Company
-                </span>
-                <p className="text-sm text-gray-700 leading-relaxed max-w-xl">
-                  {client?.companyDetails || 'No company description added yet.'}
-                </p>
-              </div>
-
-              {/* Edit Profile Button below wireframe list */}
-              <div className="pt-4">
-                <button
-                  type="button"
-                  onClick={() => setIsEditing(true)}
-                  className="px-5 py-2 rounded-xl text-xs font-bold border transition-all duration-200 hover:shadow-xs inline-flex items-center gap-1.5 cursor-pointer"
-                  style={{
-                    backgroundColor: '#FFFFFF',
-                    borderColor: '#08D9D6',
-                    color: '#252A34',
-                  }}
-                >
-                  <Edit3 className="w-3.5 h-3.5" style={{ color: '#FF2E63' }} />
-                  Edit Profile
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Prominent Action Button: Post Your Agency Advertisement (Image 1) */}
-        <div className="mb-12">
-          <button
-            type="button"
-            onClick={onPostAdvertisement}
-            className="w-full py-5 px-6 rounded-3xl text-center font-extrabold text-lg sm:text-xl border-2 transition-all duration-300 flex items-center justify-center gap-3 hover:shadow-2xl hover:-translate-y-1 active:translate-y-0 group cursor-pointer"
-            style={{
-              backgroundColor: '#FFFFFF',
-              borderColor: '#08D9D6',
-              color: '#252A34',
-              boxShadow: '0 12px 30px -8px rgba(8, 217, 214, 0.25)',
-            }}
-          >
-            <Megaphone className="w-6 h-6 transition-transform group-hover:scale-110" style={{ color: '#FF2E63' }} />
-            <span>Post Your Agency Advertisement</span>
-            <ArrowRight className="w-5 h-5 transition-transform group-hover:translate-x-1" style={{ color: '#08D9D6' }} />
-          </button>
-        </div>
-
-        {/* Existing Active Campaigns Overview Section with Edit & Delete */}
-        <div
-          className="rounded-[28px] p-6 sm:p-8 bg-white border shadow-md mb-8"
-          style={{ borderColor: 'rgba(37, 42, 52, 0.12)' }}
-        >
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 mb-4 border-b border-gray-100 gap-3">
-            <div>
-              <h3 className="text-xl font-bold flex items-center gap-2" style={{ color: '#252A34' }}>
-                <Layers className="w-5 h-5" style={{ color: '#FF2E63' }} />
-                Your Live Campaigns ({campaigns.length})
-              </h3>
-              <p className="text-xs text-gray-500">
-                Manage, edit channel allocations, and track running advertising campaigns.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={onPostAdvertisement}
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-xs hover:shadow-md cursor-pointer"
-              style={{
-                background: 'linear-gradient(135deg, #08D9D6 0%, #00b4b1 100%)',
-                color: '#252A34',
-              }}
-            >
-              <Megaphone className="w-3.5 h-3.5" />
-              + Post New Campaign
-            </button>
           </div>
-
-          {campaigns.length === 0 ? (
-            <div className="text-center py-10 px-4">
-              <div
-                className="w-14 h-14 mx-auto rounded-2xl flex items-center justify-center mb-3"
-                style={{ backgroundColor: 'rgba(8, 217, 214, 0.15)' }}
-              >
-                <Megaphone className="w-7 h-7" style={{ color: '#08D9D6' }} />
-              </div>
-              <h4 className="text-base font-bold text-gray-800 mb-1">No Active Campaigns Yet</h4>
-              <p className="text-xs text-gray-500 max-w-sm mx-auto mb-4">
-                Launch your first advertising campaign across YouTube, FaceBook, Google Ads, and on-site placements.
-              </p>
-              <button
-                type="button"
-                onClick={onPostAdvertisement}
-                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold text-[#252A34] shadow-sm hover:shadow cursor-pointer"
-                style={{
-                  background: 'linear-gradient(135deg, #08D9D6 0%, #00b4b1 100%)',
-                }}
-              >
-                Create Your First Campaign
-                <ArrowRight className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {campaigns.map((camp) => {
-                const campId = camp.campaignId || camp.id;
-                const channelArray = Array.isArray(camp.selectedChannels)
-                  ? camp.selectedChannels
-                  : typeof camp.selectedChannels === 'string'
-                  ? camp.selectedChannels.split(',').map((s) => s.trim()).filter(Boolean)
-                  : [];
-
-                const statusColor =
-                  camp.status === 'ACTIVE'
-                    ? 'bg-[#08D9D6]/20 text-[#252A34] border-[#08D9D6]/40'
-                    : camp.status === 'PAUSED'
-                    ? 'bg-amber-100 text-amber-800 border-amber-300'
-                    : camp.status === 'COMPLETED'
-                    ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
-                    : 'bg-red-100 text-red-800 border-red-300';
-
-                return (
-                  <div
-                    key={campId}
-                    className="p-5 rounded-2xl border bg-gray-50 flex flex-col justify-between hover:shadow-md transition-all group"
-                    style={{ borderColor: 'rgba(37, 42, 52, 0.12)' }}
-                  >
-                    <div>
-                      <div className="flex items-start justify-between gap-2 mb-2">
-                        <div>
-                          <span className="font-extrabold text-base text-gray-900 block">
-                            {camp.campaignName || 'Untitled Campaign'}
-                          </span>
-                          <span className="text-xs font-semibold text-gray-500 flex items-center gap-1 mt-0.5">
-                            <Tag className="w-3 h-3 text-[#FF2E63]" />
-                            {camp.campaignType || 'Standard Campaign'}
-                          </span>
-                        </div>
-                        <span
-                          className={`px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase border ${statusColor}`}
-                        >
-                          {camp.status || 'ACTIVE'}
-                        </span>
-                      </div>
-
-                      {/* Channel Chips */}
-                      <div className="my-3">
-                        <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block mb-1">
-                          Allocated Channels
-                        </span>
-                        <div className="flex flex-wrap gap-1.5">
-                          {channelArray.length > 0 ? (
-                            channelArray.map((ch, idx) => (
-                              <span
-                                key={idx}
-                                className="inline-flex items-center text-xs font-semibold px-2 py-0.5 rounded-lg bg-white border border-gray-200 text-gray-700 shadow-2xs"
-                              >
-                                {ch}
-                              </span>
-                            ))
-                          ) : (
-                            <span className="text-xs text-gray-400 italic">No channels listed</span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div>
-                      {/* Price & Action Footer */}
-                      <div className="pt-3 mt-2 border-t border-gray-200/80 flex items-center justify-between text-xs">
-                        <div>
-                          <span className="text-gray-400 block text-[10px] font-bold uppercase tracking-wider">
-                            Total Investment
-                          </span>
-                          <span className="font-extrabold text-sm sm:text-base" style={{ color: '#FF2E63' }}>
-                            Rs. {Number(camp.campaignPrices || 0).toLocaleString()}
-                          </span>
-                        </div>
-
-                        {/* Edit & Delete Action Buttons */}
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => handleOpenEditCampaign(camp)}
-                            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl font-bold text-xs bg-white hover:bg-gray-100 text-[#252A34] border border-gray-300 hover:border-[#08D9D6] transition-all cursor-pointer shadow-2xs"
-                            title="Edit campaign details & channels"
-                          >
-                            <Edit3 className="w-3.5 h-3.5 text-[#08D9D6]" />
-                            <span>Edit</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleOpenDeleteCampaign(camp)}
-                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl font-bold text-xs bg-white hover:bg-red-50 text-red-600 border border-red-200 hover:border-red-400 transition-all cursor-pointer shadow-2xs"
-                            title="Delete campaign"
-                          >
-                            <Trash2 className="w-3.5 h-3.5 text-red-500" />
-                            <span>Delete</span>
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
         </div>
+      )}
 
-        {/* Campaign Progress & Marketing Analytics Section */}
-        <div className="mb-10">
-          <ClientMarketingSection
-            clientId={client?.clientID || 1}
-            companyName={client?.companyName || `${client?.firstName || 'Client'} Agency`}
-          />
-        </div>
-
-        {/* Client Advertising Tasks & Requirements Section */}
-        <div className="mb-10">
-          <ClientTaskSubmissionSection
-            clientId={client?.clientID || 1}
-            clientName={client?.companyName || `${client?.firstName || 'Client'} Agency`}
-          />
-        </div>
-
-        {/* Client Invoices & Platform Activities Billing Section */}
-        <div className="mb-10">
-          <ClientInvoicesSection
-            clientId={client?.clientID || 1}
-            companyName={client?.companyName || `${client?.firstName || 'Client'} Agency`}
-          />
-        </div>
-
-        {/* Real-time Executive Chat with Admins Section */}
-        <div className="mb-10">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h3 className="text-xl font-bold flex items-center gap-2" style={{ color: '#252A34' }}>
-                <MessageSquare className="w-5 h-5" style={{ color: '#FF2E63' }} />
-                Agency Executive & Admin Live Chat
-              </h3>
-              <p className="text-xs text-gray-500">
-                Direct inquiry channel to chat with operations, marketing, finance, and communication executives.
-              </p>
-            </div>
-          </div>
-
-          <ClientChatInterface
-            clientId={client?.clientID || 1}
-            clientName={client?.companyName || client?.firstName || 'Your Agency'}
-          />
-        </div>
-
-        {/* Client Agency Reviews & Administrator Feedback Section */}
-        <div className="mb-10">
-          <ReviewInterface
-            clientId={client?.clientID || 1}
-            clientName={client?.companyName || client?.firstName || 'Your Agency'}
-            reviewerName={`${client?.firstName || ''} ${client?.lastName || ''}`.trim() || client?.companyName}
-            campaigns={campaigns}
-          />
-        </div>
-      </main>
-
-      {/* Footer */}
-      <footer className="mt-12 text-center text-xs text-gray-500">
-        <p>© {new Date().getFullYear()} Add-an-Ad Platform • Advertising Agency Portal</p>
-      </footer>
-
-      {/* EDIT CAMPAIGN MODAL */}
+      {/* EDIT CAMPAIGN SUB-MODAL */}
       {editingCampaign && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto animate-fade-in">
+        <div
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto animate-modal-backdrop"
+          onClick={() => setEditingCampaign(null)}
+        >
           <div
-            className="bg-white rounded-[32px] p-6 sm:p-8 max-w-xl w-full shadow-2xl border relative my-8"
-            style={{
-              borderColor: 'rgba(37, 42, 52, 0.15)',
-              boxShadow: '0 25px 50px -12px rgba(37, 42, 52, 0.25)',
-            }}
+            className="bg-white rounded-[32px] p-6 sm:p-8 max-w-xl w-full shadow-2xl border border-gray-200 relative my-8 animate-modal-content"
+            onClick={(e) => e.stopPropagation()}
           >
-            {/* Top accent bar */}
-            <div
-              className="absolute top-0 left-10 right-10 h-1.5 rounded-b-full"
-              style={{
-                background: 'linear-gradient(90deg, #08D9D6 0%, #252A34 50%, #FF2E63 100%)',
-              }}
-            />
-
-            {/* Header */}
             <div className="flex items-start justify-between pb-4 mb-4 border-b border-gray-100">
               <div>
                 <h3 className="text-xl font-extrabold text-[#252A34] flex items-center gap-2">
@@ -1024,15 +1693,14 @@ export default function ClientHome({ onPostAdvertisement, onLogout }) {
               </div>
               <button
                 type="button"
-                onClick={handleCloseEditCampaign}
+                onClick={() => setEditingCampaign(null)}
                 className="p-1.5 rounded-xl text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleSaveCampaign} className="space-y-4">
-              {/* Campaign Name */}
+            <form onSubmit={handleSaveCampaignUpdate} className="space-y-4">
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider mb-1.5 text-[#252A34]">
                   Campaign Name <span className="text-[#FF2E63]">*</span>
@@ -1044,13 +1712,10 @@ export default function ClientHome({ onPostAdvertisement, onLogout }) {
                     setEditingCampaign((prev) => ({ ...prev, campaignName: e.target.value }))
                   }
                   required
-                  placeholder="e.g., Summer Brand Launch Promo"
-                  className="w-full px-3.5 py-2.5 rounded-xl border text-sm transition-all focus:ring-2 focus:ring-[#08D9D6] bg-white text-[#252A34]"
-                  style={{ borderColor: 'rgba(37, 42, 52, 0.2)' }}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-gray-300 text-sm focus:ring-2 focus:ring-[#08D9D6] bg-white text-[#252A34]"
                 />
               </div>
 
-              {/* Campaign Type & Status in a 2-col grid */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold uppercase tracking-wider mb-1.5 text-[#252A34]">
@@ -1061,8 +1726,7 @@ export default function ClientHome({ onPostAdvertisement, onLogout }) {
                     onChange={(e) =>
                       setEditingCampaign((prev) => ({ ...prev, campaignType: e.target.value }))
                     }
-                    className="w-full px-3.5 py-2.5 rounded-xl border text-sm transition-all focus:ring-2 focus:ring-[#08D9D6] bg-white text-[#252A34] font-medium"
-                    style={{ borderColor: 'rgba(37, 42, 52, 0.2)' }}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-gray-300 text-sm focus:ring-2 focus:ring-[#08D9D6] bg-white text-[#252A34] font-medium"
                   >
                     {DEFAULT_CAMPAIGN_TYPES.map((type) => (
                       <option key={type} value={type}>
@@ -1081,8 +1745,7 @@ export default function ClientHome({ onPostAdvertisement, onLogout }) {
                     onChange={(e) =>
                       setEditingCampaign((prev) => ({ ...prev, status: e.target.value }))
                     }
-                    className="w-full px-3.5 py-2.5 rounded-xl border text-sm transition-all focus:ring-2 focus:ring-[#08D9D6] bg-white text-[#252A34] font-medium"
-                    style={{ borderColor: 'rgba(37, 42, 52, 0.2)' }}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-gray-300 text-sm focus:ring-2 focus:ring-[#08D9D6] bg-white text-[#252A34] font-medium"
                   >
                     <option value="ACTIVE">ACTIVE</option>
                     <option value="PAUSED">PAUSED</option>
@@ -1092,7 +1755,6 @@ export default function ClientHome({ onPostAdvertisement, onLogout }) {
                 </div>
               </div>
 
-              {/* Advertising Channels Selection */}
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider mb-1.5 text-[#252A34]">
                   Select Channels & Rate Card <span className="text-[#FF2E63]">*</span>
@@ -1105,7 +1767,7 @@ export default function ClientHome({ onPostAdvertisement, onLogout }) {
                         key={channel}
                         type="button"
                         onClick={() => handleToggleEditChannel(channel)}
-                        className={`p-2.5 rounded-xl text-left border transition-all duration-200 cursor-pointer flex flex-col justify-between ${
+                        className={`p-2.5 rounded-xl text-left border transition-all cursor-pointer flex flex-col justify-between ${
                           isSelected
                             ? 'bg-[#252A34] text-white border-[#252A34] shadow-xs'
                             : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100 hover:border-gray-300'
@@ -1134,35 +1796,27 @@ export default function ClientHome({ onPostAdvertisement, onLogout }) {
                 </div>
               </div>
 
-              {/* Investment Price Summary */}
-              <div
-                className="p-4 rounded-2xl border flex items-center justify-between"
-                style={{
-                  backgroundColor: 'rgba(8, 217, 214, 0.08)',
-                  borderColor: 'rgba(8, 217, 214, 0.4)',
-                }}
-              >
+              <div className="p-4 rounded-2xl bg-[#08D9D6]/10 border border-[#08D9D6]/30 flex items-center justify-between">
                 <div>
                   <span className="text-xs font-semibold text-gray-600 block">
-                    Calculated Total Investment:
+                    Calculated Total Budget:
                   </span>
                   <span className="text-[11px] text-gray-500">
                     {editingCampaign.selectedChannels.length} platform(s) selected
                   </span>
                 </div>
                 <div className="text-right">
-                  <span className="text-xl font-extrabold" style={{ color: '#FF2E63' }}>
+                  <span className="text-xl font-extrabold text-[#FF2E63]">
                     Rs. {Number(editingCampaign.campaignPrices || 0).toLocaleString()}
                   </span>
                 </div>
               </div>
 
-              {/* Actions */}
               <div className="flex gap-3 pt-3">
                 <button
                   type="submit"
                   disabled={isCampaignSaving}
-                  className="flex-1 py-3 px-4 rounded-xl font-bold text-sm text-[#252A34] shadow-md transition-all flex items-center justify-center gap-2 hover:opacity-95 cursor-pointer disabled:opacity-60"
+                  className="flex-1 py-3 px-4 rounded-xl font-bold text-sm text-[#252A34] shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
                   style={{
                     background: 'linear-gradient(135deg, #08D9D6 0%, #00b4b1 100%)',
                   }}
@@ -1170,7 +1824,7 @@ export default function ClientHome({ onPostAdvertisement, onLogout }) {
                   {isCampaignSaving ? (
                     <>
                       <Loader2 className="w-4 h-4 animate-spin" />
-                      Saving Updates...
+                      Saving...
                     </>
                   ) : (
                     <>
@@ -1181,10 +1835,9 @@ export default function ClientHome({ onPostAdvertisement, onLogout }) {
                 </button>
                 <button
                   type="button"
-                  onClick={handleCloseEditCampaign}
+                  onClick={() => setEditingCampaign(null)}
                   disabled={isCampaignSaving}
-                  className="px-5 py-3 rounded-xl font-semibold text-sm border hover:bg-gray-100 transition-colors text-gray-600 cursor-pointer"
-                  style={{ borderColor: 'rgba(37, 42, 52, 0.2)' }}
+                  className="px-5 py-3 rounded-xl font-semibold text-sm border border-gray-300 hover:bg-gray-100 transition-colors text-gray-600 cursor-pointer"
                 >
                   Cancel
                 </button>
@@ -1194,32 +1847,22 @@ export default function ClientHome({ onPostAdvertisement, onLogout }) {
         </div>
       )}
 
-      {/* DELETE CONFIRMATION MODAL */}
+      {/* DELETE CONFIRMATION SUB-MODAL */}
       {deletingCampaign && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
+        <div
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-md flex items-center justify-center p-4 animate-modal-backdrop"
+          onClick={() => setDeletingCampaign(null)}
+        >
           <div
-            className="bg-white rounded-[32px] p-6 sm:p-8 max-w-md w-full shadow-2xl border relative"
-            style={{
-              borderColor: 'rgba(255, 46, 99, 0.2)',
-              boxShadow: '0 25px 50px -12px rgba(37, 42, 52, 0.25)',
-            }}
+            className="bg-white rounded-[32px] p-6 sm:p-8 max-w-md w-full shadow-2xl border border-red-200 relative animate-modal-content"
+            onClick={(e) => e.stopPropagation()}
           >
-            {/* Top red accent */}
-            <div
-              className="absolute top-0 left-10 right-10 h-1.5 rounded-b-full bg-[#FF2E63]"
-            />
-
             <div className="text-center pt-2">
-              <div
-                className="w-14 h-14 mx-auto rounded-2xl flex items-center justify-center mb-4 shadow-sm"
-                style={{ backgroundColor: 'rgba(255, 46, 99, 0.12)' }}
-              >
-                <AlertTriangle className="w-7 h-7" style={{ color: '#FF2E63' }} />
+              <div className="w-14 h-14 mx-auto rounded-2xl bg-red-100 flex items-center justify-center mb-4 shadow-xs">
+                <AlertTriangle className="w-7 h-7 text-[#FF2E63]" />
               </div>
 
-              <h3 className="text-xl font-extrabold text-[#252A34] mb-2">
-                Delete Campaign?
-              </h3>
+              <h3 className="text-xl font-extrabold text-[#252A34] mb-2">Delete Campaign?</h3>
               <p className="text-sm text-gray-600 mb-4 leading-relaxed">
                 Are you sure you want to permanently remove{' '}
                 <span className="font-bold text-[#252A34]">
@@ -1228,13 +1871,7 @@ export default function ClientHome({ onPostAdvertisement, onLogout }) {
                 ? All connected advertising channels and placement budgets will be discarded.
               </p>
 
-              <div
-                className="p-3.5 rounded-xl border text-xs text-left mb-6 space-y-1"
-                style={{
-                  backgroundColor: '#FFF5F7',
-                  borderColor: 'rgba(255, 46, 99, 0.2)',
-                }}
-              >
+              <div className="p-3.5 rounded-xl border border-red-200 bg-red-50/60 text-xs text-left mb-6 space-y-1">
                 <div className="flex justify-between text-gray-700">
                   <span>Campaign Type:</span>
                   <span className="font-semibold">{deletingCampaign.campaignType}</span>
@@ -1250,10 +1887,9 @@ export default function ClientHome({ onPostAdvertisement, onLogout }) {
               <div className="flex gap-3">
                 <button
                   type="button"
-                  onClick={handleCloseDeleteCampaign}
+                  onClick={() => setDeletingCampaign(null)}
                   disabled={isCampaignDeleting}
-                  className="flex-1 py-2.5 px-4 rounded-xl font-semibold text-sm border hover:bg-gray-100 transition-colors text-gray-700 cursor-pointer"
-                  style={{ borderColor: 'rgba(37, 42, 52, 0.2)' }}
+                  className="flex-1 py-2.5 px-4 rounded-xl font-semibold text-sm border border-gray-300 hover:bg-gray-100 transition-colors text-gray-700 cursor-pointer"
                 >
                   Keep Campaign
                 </button>

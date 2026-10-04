@@ -181,57 +181,60 @@ function App() {
     <div className="min-h-screen bg-[#EAEAEA] relative flex flex-col font-sans">
       {/* Top Navigation Bar - ONLY shown after login and with role-specific tabs */}
       {isAuthenticated && !isAuthRoute && (
-        <nav className="bg-[#252A34] text-white shadow-md sticky top-0 z-50">
-          <div className="max-w-7xl mx-auto px-4 py-2.5 flex flex-col sm:flex-row items-center justify-between gap-3">
-            {/* Left: Brand & Role Indicator */}
+        <nav className="bg-[#161B26] text-white shadow-md sticky top-0 z-50">
+          <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between relative">
+            {/* Left: Brand / Logo */}
             <div className="flex items-center space-x-3">
-              <div className="flex items-center space-x-2 font-bold tracking-wide">
-                <span
-                  className={`w-2.5 h-2.5 rounded-full ${
-                    isAdmin ? 'bg-[#FF2E63]' : 'bg-[#08D9D6]'
-                  } animate-pulse`}
-                />
-                <span className="text-white text-base font-extrabold tracking-tight">Add-an-Ad</span>
-              </div>
-              <span className="text-white/40">|</span>
-              <span
-                className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wider ${
-                  isAdmin
-                    ? 'bg-[#FF2E63]/20 text-[#FF2E63] border border-[#FF2E63]/30'
-                    : 'bg-[#08D9D6]/20 text-[#08D9D6] border border-[#08D9D6]/30'
-                }`}
-              >
-                {isAdmin ? 'Admin Suite' : 'Client Portal'}
-              </span>
+              {isClient ? (
+                <div className="px-3 py-1 bg-white text-[#161B26] font-extrabold text-xs sm:text-sm rounded shadow-xs tracking-wider uppercase border border-white/30 flex items-center gap-1.5 select-none">
+                  <span className="w-2 h-2 rounded-full bg-[#08D9D6]"></span>
+                  <span>Logo</span>
+                </div>
+              ) : (
+                <div className="flex items-center space-x-2 font-bold tracking-wide">
+                  <span className="w-2.5 h-2.5 rounded-full bg-[#FF2E63] animate-pulse" />
+                  <span className="text-white text-base font-extrabold tracking-tight">Add-an-Ad</span>
+                  <span className="text-white/40">|</span>
+                  <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wider bg-[#FF2E63]/20 text-[#FF2E63] border border-[#FF2E63]/30">
+                    Admin Suite
+                  </span>
+                </div>
+              )}
             </div>
 
-            {/* Middle: Role-Authorized Navigation Tabs */}
-            <div className="flex flex-wrap items-center justify-center gap-1.5 text-xs">
-              {visibleNavItems.map((item) => {
-                const Icon = item.icon;
-                return (
-                  <NavLink
-                    key={item.path}
-                    to={item.path}
-                    title={item.label}
-                    className={({ isActive }) =>
-                      `px-3 py-1.5 rounded-lg font-semibold transition-all flex items-center gap-1.5 ${
-                        isActive
-                          ? `${item.activeColor} shadow-xs scale-102`
-                          : 'text-white/80 hover:text-white hover:bg-white/10'
-                      }`
-                    }
-                  >
-                    <Icon className="w-3.5 h-3.5" />
-                    <span>{item.label}</span>
-                  </NavLink>
-                );
-              })}
-            </div>
+            {/* Middle: Centered Add-an-Ad title for Client, or Admin tabs for Admin */}
+            {isClient ? (
+              <div className="absolute left-1/2 -translate-x-1/2 text-xl sm:text-2xl font-black tracking-wide text-white flex items-center gap-2 select-none">
+                <span>Add-an-Ad</span>
+              </div>
+            ) : (
+              <div className="flex flex-wrap items-center justify-center gap-1.5 text-xs">
+                {visibleNavItems.map((item) => {
+                  const Icon = item.icon;
+                  return (
+                    <NavLink
+                      key={item.path}
+                      to={item.path}
+                      title={item.label}
+                      className={({ isActive }) =>
+                        `px-3 py-1.5 rounded-lg font-semibold transition-all flex items-center gap-1.5 ${
+                          isActive
+                            ? `${item.activeColor} shadow-xs scale-102`
+                            : 'text-white/80 hover:text-white hover:bg-white/10'
+                        }`
+                      }
+                    >
+                      <Icon className="w-3.5 h-3.5" />
+                      <span>{item.label}</span>
+                    </NavLink>
+                  );
+                })}
+              </div>
+            )}
 
             {/* Right: Authenticated User Badge & Logout Action */}
             <div className="flex items-center gap-3 text-xs">
-              <div className="flex items-center gap-1.5 text-white/80">
+              <div className="hidden sm:flex items-center gap-1.5 text-white/80">
                 {isAdmin ? (
                   <Shield className="w-4 h-4 text-[#FF2E63]" />
                 ) : (
