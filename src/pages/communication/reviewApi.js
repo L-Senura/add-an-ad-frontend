@@ -7,10 +7,11 @@
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 
 // In-memory demo reviews store for fallback/offline testing
-let demoReviews = [
+const INITIAL_DEMO_REVIEWS = [
+  // Client to Admin confidential reviews
   {
     reviewID: 1,
-    clientID: 1,
+    clientID: 999,
     clientName: 'Nova Marketing Agency',
     reviewerName: 'Alexander Wright',
     rating: 5,
@@ -24,7 +25,7 @@ let demoReviews = [
   },
   {
     reviewID: 2,
-    clientID: 1,
+    clientID: 999,
     clientName: 'Nova Marketing Agency',
     reviewerName: 'Alexander Wright',
     rating: 4,
@@ -64,7 +65,173 @@ let demoReviews = [
     isPublic: false,
     reviewTime: new Date(Date.now() - 1000 * 60 * 60 * 120).toISOString(),
   },
+  // Public-to-Client brand reviews (Visitable by external users without account)
+  {
+    reviewID: 1001,
+    clientID: 101,
+    clientName: 'OmniVanguard Digital',
+    reviewerName: 'Daniel Vance - DTC Brand Lead',
+    rating: 5,
+    reviewTitle: 'Tripled Our ROAS Within 45 Days!',
+    reviewMessage: 'OmniVanguard transformed our performance video pipeline. Their audience targeting hooks and creative variations drove our customer acquisition cost down by 42%. Absolutely world-class ad agency.',
+    workReference: 'Q3 YouTube & Meta Performance Blitz',
+    adminID: null,
+    reviewType: 'PUBLIC_TO_CLIENT',
+    isPublic: true,
+    reviewTime: new Date(Date.now() - 1000 * 60 * 60 * 48).toISOString(),
+  },
+  {
+    reviewID: 1002,
+    clientID: 101,
+    clientName: 'OmniVanguard Digital',
+    reviewerName: 'Sarah Jenkins',
+    rating: 5,
+    reviewTitle: 'Rapid Creative Delivery & Clear Reporting',
+    reviewMessage: 'Delivered 14 high-impact video variations in under two weeks. The transparent weekly reporting and rate cards made stakeholder updates effortless.',
+    workReference: 'Spring Product Launch 2026',
+    adminID: null,
+    reviewType: 'PUBLIC_TO_CLIENT',
+    isPublic: true,
+    reviewTime: new Date(Date.now() - 1000 * 60 * 60 * 96).toISOString(),
+  },
+  {
+    reviewID: 1003,
+    clientID: 101,
+    clientName: 'OmniVanguard Digital',
+    reviewerName: 'Anonymous Visitor',
+    rating: 4,
+    reviewTitle: 'Solid Campaign Execution',
+    reviewMessage: 'Great work scaling our social media channels. Communication was always responsive and professional.',
+    workReference: 'Brand Re-engagement Sprint',
+    adminID: null,
+    reviewType: 'PUBLIC_TO_CLIENT',
+    isPublic: true,
+    reviewTime: new Date(Date.now() - 1000 * 60 * 60 * 168).toISOString(),
+  },
+  {
+    reviewID: 1004,
+    clientID: 102,
+    clientName: 'Lumina Creative Labs',
+    reviewerName: 'Kavita Patel - Consumer Tech CMO',
+    rating: 5,
+    reviewTitle: 'Viral TikTok Ad Reached 3.2M Impressions',
+    reviewMessage: 'Lumina has unmatched artistic sense. Their 3D product animation captured viewers within the first 3 seconds, leading to our highest organic engagement surge ever.',
+    workReference: 'Next-Gen Earbuds Launch',
+    adminID: null,
+    reviewType: 'PUBLIC_TO_CLIENT',
+    isPublic: true,
+    reviewTime: new Date(Date.now() - 1000 * 60 * 60 * 36).toISOString(),
+  },
+  {
+    reviewID: 1005,
+    clientID: 102,
+    clientName: 'Lumina Creative Labs',
+    reviewerName: 'Anonymous Visitor',
+    rating: 5,
+    reviewTitle: 'Breathtaking 3D Visuals & Storytelling',
+    reviewMessage: 'Clean, elegant visual language that immediately elevated our brand perception. Very easy team to work with.',
+    workReference: 'Interactive Digital Billboard Campaign',
+    adminID: null,
+    reviewType: 'PUBLIC_TO_CLIENT',
+    isPublic: true,
+    reviewTime: new Date(Date.now() - 1000 * 60 * 60 * 80).toISOString(),
+  },
+  {
+    reviewID: 1006,
+    clientID: 103,
+    clientName: 'Apex Brand Strategies',
+    reviewerName: 'Julian Holloway - Retail Director',
+    rating: 5,
+    reviewTitle: 'Unrivaled Search Engine Visibility & Media Pins',
+    reviewMessage: 'Apex combined physical location media pins with aggressive Google Ads bidding. We saw a 65% foot traffic increase in targeted metropolitan stores.',
+    workReference: 'Metropolitan Omnichannel Rollout',
+    adminID: null,
+    reviewType: 'PUBLIC_TO_CLIENT',
+    isPublic: true,
+    reviewTime: new Date(Date.now() - 1000 * 60 * 60 * 70).toISOString(),
+  },
+  {
+    reviewID: 1007,
+    clientID: 103,
+    clientName: 'Apex Brand Strategies',
+    reviewerName: 'Liam O’Connor',
+    rating: 4,
+    reviewTitle: 'Strategic Media Buying Experts',
+    reviewMessage: '12+ years of media buying intelligence shows in their rate negotiations. Saved us over 20% on our placement budget.',
+    workReference: 'Regional Brand Awareness Flight',
+    adminID: null,
+    reviewType: 'PUBLIC_TO_CLIENT',
+    isPublic: true,
+    reviewTime: new Date(Date.now() - 1000 * 60 * 60 * 140).toISOString(),
+  },
+  {
+    reviewID: 1008,
+    clientID: 999,
+    clientName: 'Nova Marketing Agency',
+    reviewerName: 'Rachel Green',
+    rating: 5,
+    reviewTitle: 'Flawless Multi-Channel Execution',
+    reviewMessage: 'Nova handled our entire ad creative lifecycle from script to conversion tracking. Truly an all-in-one advertising powerhouse.',
+    workReference: 'Summer Promo Campaign 2026',
+    adminID: null,
+    reviewType: 'PUBLIC_TO_CLIENT',
+    isPublic: true,
+    reviewTime: new Date(Date.now() - 1000 * 60 * 60 * 18).toISOString(),
+  },
+  {
+    reviewID: 1009,
+    clientID: 104,
+    clientName: 'EchoSphere Media',
+    reviewerName: 'Mia Torres',
+    rating: 5,
+    reviewTitle: 'Huge Gen-Z Creator Reach',
+    reviewMessage: 'Coordinated 30 micro-influencers within 5 days. Generated hundreds of genuine user-generated videos that converted like crazy.',
+    workReference: 'Viral Trend Booster',
+    adminID: null,
+    reviewType: 'PUBLIC_TO_CLIENT',
+    isPublic: true,
+    reviewTime: new Date(Date.now() - 1000 * 60 * 60 * 50).toISOString(),
+  },
+  {
+    reviewID: 1010,
+    clientID: 105,
+    clientName: 'Pulse Velocity Advertising',
+    reviewerName: 'TechVibe Media',
+    rating: 5,
+    reviewTitle: 'Automated Programmatic Bidding That Works',
+    reviewMessage: 'Real-time dynamic banner optimization gave us higher CTR than any static ad network we’ve tested. Exceptional machine learning setup.',
+    workReference: 'Global Programmatic Retargeting',
+    adminID: null,
+    reviewType: 'PUBLIC_TO_CLIENT',
+    isPublic: true,
+    reviewTime: new Date(Date.now() - 1000 * 60 * 60 * 64).toISOString(),
+  },
 ];
+
+function getStoredReviews() {
+  try {
+    const raw = localStorage.getItem('addanad_all_reviews');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed;
+      }
+    }
+  } catch (e) {
+    console.warn('Could not read cached reviews', e);
+  }
+  return INITIAL_DEMO_REVIEWS;
+}
+
+let demoReviews = getStoredReviews();
+
+function persistReviews() {
+  try {
+    localStorage.setItem('addanad_all_reviews', JSON.stringify(demoReviews));
+  } catch (e) {
+    console.warn('Could not persist reviews', e);
+  }
+}
 
 async function request(endpoint, options = {}) {
   const url = `${API_BASE_URL}${endpoint}`;
@@ -292,13 +459,52 @@ export async function getReviewById(reviewId) {
 
 /**
  * Outside visitors / public submit a review for a client brand
+ * NO account or authentication required.
  * POST /api/reviews/public/client/{clientId}
  */
 export async function submitPublicReviewForClient(clientId, reviewData) {
-  return request(`/api/reviews/public/client/${clientId}`, {
-    method: 'POST',
-    body: JSON.stringify(reviewData),
-  });
+  try {
+    const payload = {
+      clientID: Number(clientId),
+      clientName: reviewData.clientName || 'Client Brand',
+      reviewerName: reviewData.reviewerName?.trim() || 'Anonymous Visitor',
+      rating: Number(reviewData.rating),
+      reviewTitle: reviewData.reviewTitle?.trim() || '',
+      reviewMessage: reviewData.reviewMessage?.trim() || '',
+      workReference: reviewData.workReference?.trim() || '',
+      reviewType: 'PUBLIC_TO_CLIENT',
+      isPublic: true,
+    };
+    const res = await request(`/api/reviews/public/client/${clientId}`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    // Sync into demo store as well
+    if (res && res.reviewID) {
+      demoReviews.unshift(res);
+      persistReviews();
+    }
+    return res;
+  } catch (err) {
+    console.warn('Backend unavailable, saving public review locally:', err?.message);
+    const newPublicReview = {
+      reviewID: Date.now(),
+      clientID: Number(clientId),
+      clientName: reviewData.clientName || 'Client Brand',
+      reviewerName: reviewData.reviewerName?.trim() || 'Anonymous Visitor',
+      rating: Number(reviewData.rating) || 5,
+      reviewTitle: reviewData.reviewTitle?.trim() || '',
+      reviewMessage: reviewData.reviewMessage?.trim() || '',
+      workReference: reviewData.workReference?.trim() || 'Direct Client Work',
+      adminID: null,
+      reviewType: 'PUBLIC_TO_CLIENT',
+      isPublic: true,
+      reviewTime: new Date().toISOString(),
+    };
+    demoReviews.unshift(newPublicReview);
+    persistReviews();
+    return newPublicReview;
+  }
 }
 
 /**
@@ -309,26 +515,114 @@ export async function getPublicReviewsForClient(clientId) {
   try {
     return await request(`/api/reviews/public/client/${clientId}`);
   } catch {
-    return [];
+    return demoReviews.filter(
+      (r) =>
+        String(r.clientID) === String(clientId) &&
+        (r.isPublic === true || r.reviewType === 'PUBLIC_TO_CLIENT')
+    );
   }
 }
 
 /**
  * Get client brand reputation and rating summary
+ * Provides average rating, total review count, star breakdown, and recent reviews.
  * GET /api/reviews/public/client/{clientId}/summary
  */
 export async function getClientReviewSummary(clientId) {
   try {
-    return await request(`/api/reviews/public/client/${clientId}/summary`);
-  } catch {
+    const data = await request(`/api/reviews/public/client/${clientId}/summary`);
+    const breakdown = data.ratingBreakdown || data.starBreakdown || { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 };
+    const reviewsList = data.recentReviews || data.reviews || [];
+    const avg = Number(data.averageRating !== undefined ? data.averageRating : 0);
+    const count = Number(data.totalReviews !== undefined ? data.totalReviews : reviewsList.length);
+
     return {
-      clientId,
-      brandName: 'Client Brand',
-      averageRating: 4.8,
-      totalReviews: 2,
-      starBreakdown: { 5: 2, 4: 0, 3: 0, 2: 0, 1: 0 },
-      reviews: [],
+      clientId: Number(data.clientID || clientId),
+      clientID: Number(data.clientID || clientId),
+      brandName: data.clientName || 'Partner Agency',
+      clientName: data.clientName || 'Partner Agency',
+      averageRating: avg,
+      totalReviews: count,
+      starBreakdown: breakdown,
+      ratingBreakdown: breakdown,
+      reviews: reviewsList,
+      recentReviews: reviewsList,
     };
+  } catch {
+    const publicReviews = demoReviews.filter(
+      (r) =>
+        String(r.clientID) === String(clientId) &&
+        (r.isPublic === true || r.reviewType === 'PUBLIC_TO_CLIENT')
+    );
+
+    const breakdown = { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 };
+    if (publicReviews.length === 0) {
+      return {
+        clientId: Number(clientId),
+        clientID: Number(clientId),
+        brandName: null,
+        clientName: null,
+        averageRating: 0.0,
+        totalReviews: 0,
+        starBreakdown: breakdown,
+        ratingBreakdown: breakdown,
+        reviews: [],
+        recentReviews: [],
+      };
+    }
+
+    let sum = 0;
+    publicReviews.forEach((r) => {
+      const star = Math.min(5, Math.max(1, Math.round(r.rating || 5)));
+      breakdown[star] = (breakdown[star] || 0) + 1;
+      sum += r.rating || 5;
+    });
+
+    const averageRating = Number((sum / publicReviews.length).toFixed(1));
+    const brandName = publicReviews[0]?.clientName || 'Partner Agency';
+
+    return {
+      clientId: Number(clientId),
+      clientID: Number(clientId),
+      brandName,
+      clientName: brandName,
+      averageRating,
+      totalReviews: publicReviews.length,
+      starBreakdown: breakdown,
+      ratingBreakdown: breakdown,
+      reviews: publicReviews,
+      recentReviews: publicReviews,
+    };
+  }
+}
+
+/**
+ * Outside people search for client brand reviews by brand name
+ * GET /api/reviews/public/search?name=...
+ */
+export async function searchPublicReviewsByBrandName(name = '') {
+  try {
+    const query = name ? `?name=${encodeURIComponent(name)}` : '';
+    return await request(`/api/reviews/public/search${query}`);
+  } catch {
+    const term = (name || '').toLowerCase().trim();
+    return demoReviews.filter(
+      (r) =>
+        (r.isPublic === true || r.reviewType === 'PUBLIC_TO_CLIENT') &&
+        (!term || (r.clientName && r.clientName.toLowerCase().includes(term)))
+    );
+  }
+}
+
+/**
+ * Outside visitors browse all public reviews across all client brand companies
+ * GET /api/reviews/public/all
+ */
+export async function getAllPublicReviews() {
+  try {
+    return await request('/api/reviews/public/all');
+  } catch {
+    return demoReviews.filter((r) => r.isPublic === true || r.reviewType === 'PUBLIC_TO_CLIENT');
   }
 }
 
@@ -340,6 +634,11 @@ export async function getReviewsReceivedByClient(clientId) {
   try {
     return await request(`/api/reviews/client/${clientId}/received`);
   } catch {
-    return [];
+    return demoReviews.filter(
+      (r) =>
+        String(r.clientID) === String(clientId) &&
+        (r.isPublic === true || r.reviewType === 'PUBLIC_TO_CLIENT')
+    );
   }
 }
+

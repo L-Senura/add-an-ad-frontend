@@ -23,6 +23,8 @@ import {
   Filter,
   ArrowUpRight,
   Plus,
+  Globe,
+  LogOut,
 } from 'lucide-react';
 import {
   getClientById,
@@ -42,6 +44,7 @@ import {
 import { getAnalysisByClientId } from '../marketing/marketingApi';
 import { getClientTasks } from '../operations/operationsApi';
 import { getInvoicesByClientId } from '../finance/financeApi';
+import { getClientReviewSummary } from '../communication/reviewApi';
 import ClientChatInterface from '../communication/clientChatInterface';
 import ReviewInterface from '../communication/reviewInterface';
 import ClientInvoicesSection from '../finance/ClientInvoicesSection';
@@ -59,9 +62,14 @@ export default function ClientHome({ onPostAdvertisement, onLogout }) {
   const [marketingSummary, setMarketingSummary] = useState({ views: 0, clicks: 0, ctr: '0.00' });
   const [taskSummary, setTaskSummary] = useState({ count: 0, pending: 0 });
   const [invoiceSummary, setInvoiceSummary] = useState({ count: 0, pendingCount: 0, pendingTotal: 0 });
+  const [publicReviewSummary, setPublicReviewSummary] = useState({
+    totalReviews: 0,
+    averageRating: 5.0,
+    reviews: [],
+  });
 
   // Interactive Popup Modal State
-  // 'chat' | 'add_campaign' | 'campaign_details' | 'marketing' | 'tasks' | 'billing' | 'review' | 'edit_profile' | null
+  // 'chat' | 'add_campaign' | 'campaign_details' | 'marketing' | 'tasks' | 'billing' | 'review' | 'public_visitor_reviews' | 'edit_profile' | null
   const [activeModal, setActiveModal] = useState(null);
 
   // Sub-modal state for Card 1 (Live Campaigns): Editing & Deleting
@@ -199,7 +207,7 @@ export default function ClientHome({ onPostAdvertisement, onLogout }) {
             .then((list) => {
               if (Array.isArray(list)) setCampaigns(list);
             })
-            .catch(() => {}),
+            .catch(() => { }),
 
           // 2. Marketing Telemetry Preview
           getAnalysisByClientId(clientId)
@@ -215,7 +223,7 @@ export default function ClientHome({ onPostAdvertisement, onLogout }) {
                 setMarketingSummary({ views: totalViews, clicks: totalClicks, ctr: avgCtr });
               }
             })
-            .catch(() => {}),
+            .catch(() => { }),
 
           // 3. Operations Tasks Preview
           getClientTasks(clientId)
@@ -227,7 +235,7 @@ export default function ClientHome({ onPostAdvertisement, onLogout }) {
                 setTaskSummary({ count: taskList.length, pending });
               }
             })
-            .catch(() => {}),
+            .catch(() => { }),
 
           // 4. Invoices Preview
           getInvoicesByClientId(clientId)
@@ -247,7 +255,16 @@ export default function ClientHome({ onPostAdvertisement, onLogout }) {
                 });
               }
             })
-            .catch(() => {}),
+            .catch(() => { }),
+
+          // 5. Visitor Reviews (submitted by non-registered homepage users)
+          getClientReviewSummary(clientId)
+            .then((summary) => {
+              if (summary) {
+                setPublicReviewSummary(summary);
+              }
+            })
+            .catch(() => { }),
         ]);
       } catch (err) {
         console.error('Error loading client dashboard data:', err);
@@ -409,8 +426,8 @@ export default function ClientHome({ onPostAdvertisement, onLogout }) {
     const channels = Array.isArray(rawChannels)
       ? rawChannels
       : typeof rawChannels === 'string'
-      ? rawChannels.split(',').map((s) => s.trim()).filter(Boolean)
-      : [];
+        ? rawChannels.split(',').map((s) => s.trim()).filter(Boolean)
+        : [];
 
     setEditingCampaign({
       campaignId: camp.campaignId || camp.id,
@@ -635,8 +652,8 @@ export default function ClientHome({ onPostAdvertisement, onLogout }) {
                 </span>
               </div>
 
-              {/* "Edit Profile" link/button positioned directly under the avatar/agency name */}
-              <div className="mt-1.5">
+              {/* "Edit Profile" and "Logout" actions positioned directly under the avatar/agency name */}
+              <div className="mt-1.5 flex items-center gap-3">
                 <button
                   type="button"
                   onClick={() => setActiveModal('edit_profile')}
@@ -647,6 +664,23 @@ export default function ClientHome({ onPostAdvertisement, onLogout }) {
                     Edit Profile
                   </span>
                 </button>
+
+                {onLogout && (
+                  <>
+                    <span className="text-gray-300 text-xs select-none">|</span>
+                    <button
+                      type="button"
+                      onClick={onLogout}
+                      className="inline-flex items-center gap-1.5 text-xs font-bold text-red-500 hover:text-red-700 transition-colors cursor-pointer group"
+                      title="Logout and return to main home page"
+                    >
+                      <LogOut className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
+                      <span className="underline decoration-red-200 underline-offset-4 group-hover:decoration-red-500">
+                        Logout
+                      </span>
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           </div>
@@ -826,17 +860,39 @@ export default function ClientHome({ onPostAdvertisement, onLogout }) {
           </div>
         </div>
 
-        {/* 4. BOTTOM ACTION: "Add a Review" (Exact match to User Image Wireframe) */}
+        {/* 4. BOTTOM ACTION: "Homepage Visitor Reviews" & "Add a Review To Agency" */}
         {/* Positioned on the right side below the cards */}
-        {/* Arrow Note: By clicking this user can see the review interface which interactive popup menu comes */}
-        <div className="flex justify-end pt-2 pb-6">
+        {/* Allows company to inspect visitor reviews from the public homepage, or submit confidential agency review */}
+        <div className="flex flex-wrap items-center justify-end gap-3 pt-2 pb-6">
+          {/* Menu button to see user reviews about this company provided by non-registered users at the homepage */}
+          {/* <button
+            type="button"
+            onClick={() => setActiveModal('public_visitor_reviews')}
+            className="inline-flex items-center gap-2.5 px-6 py-3 rounded-2xl font-extrabold text-sm text-[#252A34] bg-white border-2 border-[#252A34] hover:border-[#08D9D6] shadow-md hover:shadow-xl hover:-translate-y-0.5 active:translate-y-0 transition-all duration-200 cursor-pointer group"
+            title="View public ratings and reviews left by non-registered visitors on the homepage"
+          >
+            <div className="relative">
+              <MessageSquare className="w-4 h-4 text-[#08D9D6] group-hover:scale-110 transition-transform duration-200" />
+              {publicReviewSummary.totalReviews > 0 && (
+                <span className="absolute -top-1 -right-1 w-2 h-2 bg-[#FF2E63] rounded-full animate-pulse" />
+              )}
+            </div>
+            <span>Homepage Visitor Reviews</span>
+            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-black bg-[#08D9D6]/15 text-[#252A34] border border-[#08D9D6]/30">
+              <Star className="w-3 h-3 fill-amber-400 text-amber-500" />
+              <span>{publicReviewSummary.totalReviews > 0 ? publicReviewSummary.averageRating : '5.0'}</span>
+              <span className="text-gray-400 font-bold">({publicReviewSummary.totalReviews})</span>
+            </span>
+          </button> */}
+
+          {/* Company Review For Admin */}
           <button
             type="button"
             onClick={() => setActiveModal('review')}
             className="inline-flex items-center gap-2 px-6 py-3 rounded-2xl font-extrabold text-sm text-[#252A34] bg-white border-2 border-[#252A34] hover:border-[#FF2E63] shadow-md hover:shadow-xl hover:-translate-y-0.5 active:translate-y-0 transition-all duration-200 cursor-pointer group"
           >
             <Star className="w-4 h-4 fill-amber-400 text-amber-500 group-hover:rotate-12 transition-transform duration-200" />
-            <span>Add a Review</span>
+            <span>Reviews</span>
             <Sparkles className="w-3.5 h-3.5 text-[#08D9D6]" />
           </button>
         </div>
@@ -1007,28 +1063,25 @@ export default function ClientHome({ onPostAdvertisement, onLogout }) {
                         key={channel}
                         type="button"
                         onClick={() => toggleNewCampaignChannel(channel)}
-                        className={`p-3 rounded-2xl text-left border transition-all cursor-pointer flex flex-col justify-between ${
-                          isSelected
+                        className={`p-3 rounded-2xl text-left border transition-all cursor-pointer flex flex-col justify-between ${isSelected
                             ? 'bg-[#252A34] text-white border-[#252A34] shadow-md scale-101'
                             : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100 hover:border-gray-300'
-                        }`}
+                          }`}
                       >
                         <div className="flex items-center justify-between w-full">
                           <span className="text-xs font-bold truncate">{channel}</span>
                           <span
-                            className={`w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-bold ${
-                              isSelected
+                            className={`w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-bold ${isSelected
                                 ? 'bg-[#08D9D6] text-[#252A34]'
                                 : 'border border-gray-300'
-                            }`}
+                              }`}
                           >
                             {isSelected ? '✓' : ''}
                           </span>
                         </div>
                         <span
-                          className={`text-xs font-extrabold mt-2 ${
-                            isSelected ? 'text-[#08D9D6]' : 'text-gray-600'
-                          }`}
+                          className={`text-xs font-extrabold mt-2 ${isSelected ? 'text-[#08D9D6]' : 'text-gray-600'
+                            }`}
                         >
                           Rs. {rate.toLocaleString()}
                         </span>
@@ -1155,11 +1208,10 @@ export default function ClientHome({ onPostAdvertisement, onLogout }) {
                     key={st}
                     type="button"
                     onClick={() => setCampaignStatusFilter(st)}
-                    className={`px-3 py-1 rounded-lg font-bold transition-all cursor-pointer ${
-                      campaignStatusFilter === st
+                    className={`px-3 py-1 rounded-lg font-bold transition-all cursor-pointer ${campaignStatusFilter === st
                         ? 'bg-[#252A34] text-white shadow-2xs'
                         : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                    }`}
+                      }`}
                   >
                     {st}
                   </button>
@@ -1211,17 +1263,17 @@ export default function ClientHome({ onPostAdvertisement, onLogout }) {
                     const channelArray = Array.isArray(camp.selectedChannels)
                       ? camp.selectedChannels
                       : typeof camp.selectedChannels === 'string'
-                      ? camp.selectedChannels.split(',').map((s) => s.trim()).filter(Boolean)
-                      : [];
+                        ? camp.selectedChannels.split(',').map((s) => s.trim()).filter(Boolean)
+                        : [];
 
                     const statusStyle =
                       camp.status === 'ACTIVE'
                         ? 'bg-[#08D9D6]/20 text-[#007573] border-[#08D9D6]/40'
                         : camp.status === 'PAUSED'
-                        ? 'bg-amber-100 text-amber-800 border-amber-300'
-                        : camp.status === 'COMPLETED'
-                        ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
-                        : 'bg-red-100 text-red-800 border-red-300';
+                          ? 'bg-amber-100 text-amber-800 border-amber-300'
+                          : camp.status === 'COMPLETED'
+                            ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                            : 'bg-red-100 text-red-800 border-red-300';
 
                     return (
                       <div
@@ -1495,6 +1547,77 @@ export default function ClientHome({ onPostAdvertisement, onLogout }) {
                 clientName={companyTitle}
                 reviewerName={reviewerName}
                 campaigns={campaigns}
+                initialTab="sent_to_admins"
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 7B: "Public Visitor Reviews" Homepage Reviews Popup Menu */}
+      {activeModal === 'public_visitor_reviews' && (
+        <div
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-md flex items-center justify-center p-3 sm:p-6 overflow-y-auto animate-modal-backdrop"
+          onClick={() => setActiveModal(null)}
+        >
+          <div
+            className="bg-white rounded-[32px] w-full max-w-5xl shadow-2xl border border-gray-200 relative my-auto overflow-hidden flex flex-col max-h-[92vh] animate-modal-content"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Top Accent Strip */}
+            <div className="h-1.5 w-full bg-gradient-to-r from-[#08D9D6] via-[#FF2E63] to-[#252A34]" />
+
+            {/* Modal Header */}
+            <div className="p-5 sm:p-6 border-b border-gray-100 flex items-center justify-between gap-3 bg-gray-50/80">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-[#08D9D6]/20 flex items-center justify-center text-[#252A34]">
+                  <MessageSquare className="w-5 h-5 text-[#08D9D6]" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h3 className="text-lg sm:text-xl font-extrabold text-[#252A34]">
+                      Visitor Reviews From Homepage
+                    </h3>
+                    <span className="px-2.5 py-0.5 rounded-full text-[11px] font-black bg-[#FF2E63]/15 text-[#FF2E63] border border-[#FF2E63]/30">
+                      Non-Registered Users
+                    </span>
+                  </div>
+                  <p className="text-xs text-gray-500">
+                    Real reviews & ratings submitted by prospective clients and visitors browsing your agency on the homepage.
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <a
+                  href={`/company/${client?.clientID || 1}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold text-xs bg-white hover:bg-gray-100 text-[#252A34] border border-gray-200 hover:border-[#08D9D6] transition-all cursor-pointer shadow-2xs"
+                  title="Open company public page in new tab"
+                >
+                  <Eye className="w-3.5 h-3.5 text-[#08D9D6]" />
+                  <span>View Public Page</span>
+                  <ArrowUpRight className="w-3 h-3 text-gray-400" />
+                </a>
+                <button
+                  type="button"
+                  onClick={() => setActiveModal(null)}
+                  className="p-2 rounded-xl text-gray-400 hover:text-gray-700 hover:bg-gray-200/60 transition-colors cursor-pointer"
+                  title="Close popup"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Body: ReviewInterface loaded directly on received_from_public tab */}
+            <div className="p-4 sm:p-6 overflow-y-auto flex-1">
+              <ReviewInterface
+                clientId={client?.clientID || 1}
+                clientName={companyTitle}
+                reviewerName={reviewerName}
+                campaigns={campaigns}
+                initialTab="received_from_public"
               />
             </div>
           </div>
@@ -1767,26 +1890,23 @@ export default function ClientHome({ onPostAdvertisement, onLogout }) {
                         key={channel}
                         type="button"
                         onClick={() => handleToggleEditChannel(channel)}
-                        className={`p-2.5 rounded-xl text-left border transition-all cursor-pointer flex flex-col justify-between ${
-                          isSelected
+                        className={`p-2.5 rounded-xl text-left border transition-all cursor-pointer flex flex-col justify-between ${isSelected
                             ? 'bg-[#252A34] text-white border-[#252A34] shadow-xs'
                             : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100 hover:border-gray-300'
-                        }`}
+                          }`}
                       >
                         <div className="flex items-center justify-between w-full">
                           <span className="text-xs font-bold truncate">{channel}</span>
                           <span
-                            className={`w-3.5 h-3.5 rounded-full flex items-center justify-center text-[9px] font-bold ${
-                              isSelected ? 'bg-[#08D9D6] text-[#252A34]' : 'border border-gray-300'
-                            }`}
+                            className={`w-3.5 h-3.5 rounded-full flex items-center justify-center text-[9px] font-bold ${isSelected ? 'bg-[#08D9D6] text-[#252A34]' : 'border border-gray-300'
+                              }`}
                           >
                             {isSelected ? '✓' : ''}
                           </span>
                         </div>
                         <span
-                          className={`text-[11px] font-semibold mt-1 ${
-                            isSelected ? 'text-[#08D9D6]' : 'text-gray-500'
-                          }`}
+                          className={`text-[11px] font-semibold mt-1 ${isSelected ? 'text-[#08D9D6]' : 'text-gray-500'
+                            }`}
                         >
                           Rs. {rate.toLocaleString()}
                         </span>

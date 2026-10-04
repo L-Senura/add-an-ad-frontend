@@ -8,7 +8,14 @@ import AdminChatDashboard from './pages/communication/adminChatDashboard';
 import InvoiceManagement from './pages/finance/InvoiceManagement';
 import MarketingDashboard from './pages/marketing/MarketingDashboard';
 import OperationsCoordinationDashboard from './pages/operations/OperationsCoordinationDashboard';
-import { getStoredAuthSession, clearAuthSession, saveAuthSession } from './pages/client/api';
+import {
+  getStoredAuthSession,
+  clearAuthSession,
+  saveAuthSession,
+  logoutClient,
+  logoutAdmin,
+} from './pages/client/api';
+import { HomePage, CompanyDetailsPage } from './pages/public';
 import { BACKEND_API_ROUTES } from './services/api';
 import {
   Home,
@@ -80,13 +87,13 @@ const ADMIN_NAV_ITEMS = [
  */
 function ClientRoute({ session, isClient, isAdmin, children }) {
   if (!session) {
-    return <Navigate to={BACKEND_API_ROUTES.CLIENT_LOGIN} replace />;
+    return <Navigate to="/" replace />;
   }
   if (isAdmin) {
     return <Navigate to={BACKEND_API_ROUTES.ADMIN_APPROVALS} replace />;
   }
   if (!isClient) {
-    return <Navigate to={BACKEND_API_ROUTES.CLIENT_LOGIN} replace />;
+    return <Navigate to="/" replace />;
   }
   return children;
 }
@@ -97,13 +104,13 @@ function ClientRoute({ session, isClient, isAdmin, children }) {
  */
 function AdminRoute({ session, isClient, isAdmin, children }) {
   if (!session) {
-    return <Navigate to={BACKEND_API_ROUTES.ADMIN_LOGIN} replace />;
+    return <Navigate to="/" replace />;
   }
   if (isClient) {
     return <Navigate to={BACKEND_API_ROUTES.CLIENT_HOME} replace />;
   }
   if (!isAdmin) {
-    return <Navigate to={BACKEND_API_ROUTES.ADMIN_LOGIN} replace />;
+    return <Navigate to="/" replace />;
   }
   return children;
 }
@@ -146,9 +153,16 @@ function App() {
     location.pathname === '/register' ||
     location.pathname === '/auth';
 
+  // Determine if currently on public marketplace views (Homepage or Company Details)
+  const isPublicRoute =
+    location.pathname === '/' ||
+    location.pathname === '/home' ||
+    location.pathname.startsWith('/company/') ||
+    location.pathname.startsWith('/companies/');
+
   // Role-specific navigation items:
   // Only visible AFTER login/register, and strictly separated between client & admin
-  const visibleNavItems = !isAuthenticated || isAuthRoute
+  const visibleNavItems = !isAuthenticated || isAuthRoute || isPublicRoute
     ? []
     : isClient
     ? CLIENT_NAV_ITEMS
@@ -171,16 +185,22 @@ function App() {
   };
 
   const handleLogout = () => {
-    const wasAdmin = isAdmin;
+    try {
+      if (isAdmin) {
+        logoutAdmin().catch(() => {});
+      } else {
+        logoutClient().catch(() => {});
+      }
+    } catch {}
     clearAuthSession();
     setSession(null);
-    navigate(wasAdmin ? BACKEND_API_ROUTES.ADMIN_LOGIN : BACKEND_API_ROUTES.CLIENT_LOGIN);
+    window.location.href = '/';
   };
 
   return (
     <div className="min-h-screen bg-[#EAEAEA] relative flex flex-col font-sans">
-      {/* Top Navigation Bar - ONLY shown after login and with role-specific tabs */}
-      {isAuthenticated && !isAuthRoute && (
+      {/* Top Navigation Bar - ONLY shown after login and on internal portal dashboard routes */}
+      {isAuthenticated && !isAuthRoute && !isPublicRoute && (
         <nav className="bg-[#161B26] text-white shadow-md sticky top-0 z-50">
           <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between relative">
             {/* Left: Brand / Logo */}
@@ -261,22 +281,13 @@ function App() {
       {/* Main View Router */}
       <main className="flex-1">
         <Routes>
-          {/* Root Redirect based on authentication & role */}
-          <Route
-            path="/"
-            element={
-              <Navigate
-                to={
-                  isAdmin
-                    ? BACKEND_API_ROUTES.ADMIN_APPROVALS
-                    : isClient
-                    ? BACKEND_API_ROUTES.CLIENT_HOME
-                    : BACKEND_API_ROUTES.CLIENT_LOGIN
-                }
-                replace
-              />
-            }
-          />
+          {/* Main Homepage as in wireframe */}
+          <Route path="/" element={<HomePage />} />
+          <Route path="/home" element={<HomePage />} />
+          
+          {/* Company Details & Public Reviews Page matching wireframe 2 */}
+          <Route path="/company/:id" element={<CompanyDetailsPage />} />
+          <Route path="/companies/:id" element={<CompanyDetailsPage />} />
 
           {/* 1. Client & Admin Authentication Routes */}
           <Route
@@ -580,7 +591,7 @@ function App() {
                     ? BACKEND_API_ROUTES.ADMIN_APPROVALS
                     : isClient
                     ? BACKEND_API_ROUTES.CLIENT_HOME
-                    : BACKEND_API_ROUTES.CLIENT_LOGIN
+                    : '/'
                 }
                 replace
               />

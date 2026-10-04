@@ -5,7 +5,12 @@ import ClientRegister from './ClientRegister';
 import AdminRegister from './AdminRegister';
 import ClientLogin from './ClientLogin';
 import AdminLogin from './AdminLogin';
-import { getStoredAuthSession, clearAuthSession } from './api';
+import {
+  getStoredAuthSession,
+  clearAuthSession,
+  logoutClient,
+  logoutAdmin,
+} from './api';
 import { Shield, Building, LogOut } from 'lucide-react';
 
 /**
@@ -46,8 +51,16 @@ export default function AuthPortal({
   };
 
   const handleLogout = () => {
+    try {
+      if (activeRole === 'admin') {
+        logoutAdmin().catch(() => {});
+      } else {
+        logoutClient().catch(() => {});
+      }
+    } catch {}
     clearAuthSession();
     setActiveSession(null);
+    window.location.href = '/';
   };
 
   // Dynamic titles based on role and mode

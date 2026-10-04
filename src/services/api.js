@@ -42,6 +42,10 @@ export const BACKEND_API_ROUTES = {
   REVIEWS: '/api/reviews',
   CLIENT_REVIEWS: '/api/reviews/client-to-admin',
   ADMIN_REVIEWS: '/api/reviews/admin/all',
+
+  // 8. Public Marketplace & Homepage
+  HOME: '/',
+  COMPANY_DETAILS: '/company/:id',
 };
 
 // Re-export all sub-module APIs for direct access
@@ -52,3 +56,5 @@ export * from '../pages/communication/reviewApi';
 export * from '../pages/finance/financeApi';
 export * from '../pages/marketing/marketingApi';
 export * from '../pages/operations/operationsApi';
+export * from './companyService';
+

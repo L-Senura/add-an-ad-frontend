@@ -16,6 +16,11 @@ import {
   Sparkles,
   Layers,
   ChevronDown,
+  Globe,
+  ArrowUpRight,
+  RefreshCw,
+  Eye,
+  ExternalLink,
 } from 'lucide-react';
 import {
   submitClientToAdminReview,
@@ -23,6 +28,7 @@ import {
   updateClientToAdminReview,
   deleteClientToAdminReview,
   getClientReviewSummary,
+  getReviewsReceivedByClient,
 } from './reviewApi';
 
 const RATING_LABELS = {
@@ -38,11 +44,21 @@ export default function ReviewInterface({
   clientName = 'Your Agency',
   reviewerName = 'Client Representative',
   campaigns = [],
+  initialTab = 'sent_to_admins', // 'sent_to_admins' | 'received_from_public'
 }) {
-  const [activeTab, setActiveTab] = useState('sent_to_admins'); // 'sent_to_admins' | 'received_from_public'
+  const [activeTab, setActiveTab] = useState(initialTab); // 'sent_to_admins' | 'received_from_public'
   const [sentReviews, setSentReviews] = useState([]);
   const [publicSummary, setPublicSummary] = useState(null);
+  const [publicReceivedReviews, setPublicReceivedReviews] = useState([]);
+  const [publicStarFilter, setPublicStarFilter] = useState('ALL');
   const [isLoading, setIsLoading] = useState(true);
+
+  // Sync activeTab when initialTab prop changes
+  useEffect(() => {
+    if (initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [initialTab]);
 
   // New review form state
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -64,16 +80,25 @@ export default function ReviewInterface({
   // Notification banners
   const [alert, setAlert] = useState(null); // { type: 'success'|'error', text: '' }
 
-  // Load client's sent reviews and public brand summary
+  // Load client's sent reviews and public brand summary + received visitor reviews
   const loadReviewsData = async () => {
     setIsLoading(true);
     try {
-      const [sent, summary] = await Promise.all([
+      const [sent, summary, received] = await Promise.all([
         getReviewsSentByClient(clientId),
         getClientReviewSummary(clientId),
+        getReviewsReceivedByClient(clientId).catch(() => []),
       ]);
       setSentReviews(Array.isArray(sent) ? sent : []);
-      setPublicSummary(summary);
+      const mergedPublic = Array.isArray(received) && received.length > 0
+        ? received
+        : (summary?.reviews || []);
+      setPublicReceivedReviews(mergedPublic);
+      setPublicSummary({
+        ...summary,
+        reviews: mergedPublic,
+        totalReviews: mergedPublic.length || summary?.totalReviews || 0,
+      });
     } catch (err) {
       console.warn('Could not load reviews data:', err);
     } finally {
@@ -226,41 +251,72 @@ export default function ReviewInterface({
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-6 mb-6 border-b border-gray-100 gap-4">
         <div>
-          <div className="flex items-center gap-2 mb-1">
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
             <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-[#252A34] flex items-center gap-2">
               <Star className="w-6 h-6 fill-amber-400 text-amber-500" />
-              Agency Reviews & Feedback
+              {activeTab === 'received_from_public'
+                ? 'Homepage Visitor Reviews & Ratings'
+                : 'Agency Reviews & Feedback'}
             </h2>
             <span
               className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider"
               style={{
-                backgroundColor: 'rgba(8, 217, 214, 0.18)',
-                color: '#252A34',
+                backgroundColor:
+                  activeTab === 'received_from_public'
+                    ? 'rgba(255, 46, 99, 0.15)'
+                    : 'rgba(8, 217, 214, 0.18)',
+                color: activeTab === 'received_from_public' ? '#FF2E63' : '#252A34',
               }}
             >
-              <Shield className="w-3 h-3 text-[#08D9D6]" />
-              Confidential to Admins
+              {activeTab === 'received_from_public' ? (
+                <>
+                  <Globe className="w-3 h-3 text-[#FF2E63]" />
+                  Provided by Non-Registered Users
+                </>
+              ) : (
+                <>
+                  <Shield className="w-3 h-3 text-[#08D9D6]" />
+                  Confidential to Admins
+                </>
+              )}
             </span>
           </div>
           <p className="text-xs sm:text-sm font-medium text-gray-500 max-w-xl">
-            Evaluate advertising agency performance, campaign execution, and creative services.
-            Your reviews are delivered privately to agency leadership and administrators.
+            {activeTab === 'received_from_public'
+              ? 'Read feedback and star ratings submitted by prospective customers and non-registered visitors browsing your agency on the Add-an-Ad homepage.'
+              : 'Evaluate advertising agency performance, campaign execution, and creative services. Your reviews are delivered privately to agency leadership and administrators.'}
           </p>
         </div>
 
-        {/* Action button to open submit form */}
-        {!isFormOpen && (
-          <button
-            type="button"
-            onClick={() => setIsFormOpen(true)}
-            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-xs sm:text-sm text-[#252A34] shadow-md transition-all hover:shadow-lg hover:-translate-y-0.5 cursor-pointer whitespace-nowrap"
+        {/* Action button */}
+        {activeTab === 'sent_to_admins' ? (
+          !isFormOpen && (
+            <button
+              type="button"
+              onClick={() => setIsFormOpen(true)}
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-xs sm:text-sm text-[#252A34] shadow-md transition-all hover:shadow-lg hover:-translate-y-0.5 cursor-pointer whitespace-nowrap"
+              style={{
+                background: 'linear-gradient(135deg, #08D9D6 0%, #00b4b1 100%)',
+              }}
+            >
+              <Sparkles className="w-4 h-4" />
+              Write Review for Admins
+            </button>
+          )
+        ) : (
+          <a
+            href={`/company/${clientId}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-xs sm:text-sm text-white shadow-md transition-all hover:shadow-lg hover:-translate-y-0.5 cursor-pointer whitespace-nowrap"
             style={{
-              background: 'linear-gradient(135deg, #08D9D6 0%, #00b4b1 100%)',
+              background: 'linear-gradient(135deg, #FF2E63 0%, #e01a4f 100%)',
             }}
           >
-            <Sparkles className="w-4 h-4" />
-            Write Review for Admins
-          </button>
+            <Globe className="w-4 h-4" />
+            <span>Open Public Profile</span>
+            <ArrowUpRight className="w-3.5 h-3.5" />
+          </a>
         )}
       </div>
 
@@ -449,29 +505,45 @@ export default function ReviewInterface({
       )}
 
       {/* Tabs: Sent to Admins vs Received from Public */}
-      <div className="flex items-center gap-3 mb-6 border-b border-gray-100 pb-3">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-6 border-b border-gray-100 pb-3">
+        <div className="flex items-center gap-3 flex-wrap">
+          <button
+            type="button"
+            onClick={() => setActiveTab('sent_to_admins')}
+            className={`pb-1 text-sm font-extrabold transition-all border-b-2 cursor-pointer flex items-center gap-2 ${
+              activeTab === 'sent_to_admins'
+                ? 'border-[#08D9D6] text-[#252A34]'
+                : 'border-transparent text-gray-400 hover:text-gray-700'
+            }`}
+          >
+            <Shield className="w-4 h-4 text-[#08D9D6]" />
+            <span>Reviews Sent to Administrators ({sentReviews.length})</span>
+          </button>
+          <span className="text-gray-300 hidden sm:inline">•</span>
+          <button
+            type="button"
+            onClick={() => setActiveTab('received_from_public')}
+            className={`pb-1 text-sm font-extrabold transition-all border-b-2 cursor-pointer flex items-center gap-2 ${
+              activeTab === 'received_from_public'
+                ? 'border-[#FF2E63] text-[#252A34]'
+                : 'border-transparent text-gray-400 hover:text-gray-700'
+            }`}
+          >
+            <Globe className="w-4 h-4 text-[#FF2E63]" />
+            <span>Homepage Visitor Reviews ({publicSummary?.totalReviews || publicReceivedReviews.length || 0})</span>
+          </button>
+        </div>
+
+        {/* Quick Refresh Button */}
         <button
           type="button"
-          onClick={() => setActiveTab('sent_to_admins')}
-          className={`pb-1 text-sm font-extrabold transition-all border-b-2 cursor-pointer flex items-center gap-2 ${
-            activeTab === 'sent_to_admins'
-              ? 'border-[#08D9D6] text-[#252A34]'
-              : 'border-transparent text-gray-400 hover:text-gray-700'
-          }`}
+          onClick={loadReviewsData}
+          disabled={isLoading}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-gray-600 hover:text-[#252A34] hover:bg-gray-100 transition-colors cursor-pointer disabled:opacity-50"
+          title="Refresh reviews from backend"
         >
-          <span>Reviews Sent to Administrators ({sentReviews.length})</span>
-        </button>
-        <span className="text-gray-300">•</span>
-        <button
-          type="button"
-          onClick={() => setActiveTab('received_from_public')}
-          className={`pb-1 text-sm font-extrabold transition-all border-b-2 cursor-pointer flex items-center gap-2 ${
-            activeTab === 'received_from_public'
-              ? 'border-[#FF2E63] text-[#252A34]'
-              : 'border-transparent text-gray-400 hover:text-gray-700'
-          }`}
-        >
-          <span>Customer Reviews of Your Brand ({publicSummary?.totalReviews || 0})</span>
+          <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin text-[#08D9D6]' : ''}`} />
+          <span>Refresh</span>
         </button>
       </div>
 
@@ -646,53 +718,149 @@ export default function ReviewInterface({
               </div>
             </div>
 
-            <div className="text-xs text-gray-500 bg-white p-3 rounded-2xl border border-gray-200 shadow-2xs max-w-xs">
-              <p className="font-semibold text-gray-800 mb-0.5">Public Visitor Engagement</p>
-              <p className="leading-snug">
-                Outside clients searching for your company can view and submit reviews at{' '}
-                <code className="text-[#FF2E63] font-mono text-[10px]">
-                  /api/reviews/public/client/{clientId}
-                </code>
-              </p>
+            <div className="flex flex-col sm:items-end gap-2 text-xs">
+              <a
+                href={`/company/${clientId}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs bg-[#252A34] hover:bg-[#FF2E63] text-white transition-all shadow-sm cursor-pointer group"
+                title="Open public company page on the homepage directory"
+              >
+                <Eye className="w-3.5 h-3.5 text-[#08D9D6]" />
+                <span>View Public Page on Homepage</span>
+                <ArrowUpRight className="w-3.5 h-3.5 text-gray-300 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
+              </a>
+              <span className="text-[11px] text-gray-500 font-medium">
+                Non-registered users leave ratings & reviews here
+              </span>
             </div>
           </div>
 
-          {/* Public Reviews List */}
-          {(!publicSummary?.reviews || publicSummary.reviews.length === 0) ? (
-            <div className="text-center py-8 text-xs text-gray-500 italic bg-gray-50 rounded-2xl border border-dashed border-gray-200">
-              No public reviews recorded yet for your agency brand.
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {publicSummary.reviews.map((pr) => (
-                <div
-                  key={pr.reviewID || pr.id}
-                  className="p-4 rounded-2xl border bg-white shadow-2xs"
-                  style={{ borderColor: 'rgba(37, 42, 52, 0.1)' }}
+          {/* Star Filter Pills for Public Reviews */}
+          <div className="flex items-center justify-between gap-3 pt-2">
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
+              <span className="text-xs font-bold text-gray-500 mr-1">Filter by:</span>
+              {['ALL', '5', '4', '3', '2', '1'].map((val) => (
+                <button
+                  key={val}
+                  type="button"
+                  onClick={() => setPublicStarFilter(val)}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    publicStarFilter === val
+                      ? 'bg-[#252A34] text-white shadow-2xs'
+                      : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-100'
+                  }`}
                 >
-                  <div className="flex items-center justify-between mb-1.5">
-                    <div className="flex items-center gap-1">
-                      {[1, 2, 3, 4, 5].map((s) => (
-                        <Star
-                          key={s}
-                          className={`w-3.5 h-3.5 ${
-                            s <= pr.rating
-                              ? 'fill-amber-400 text-amber-500'
-                              : 'fill-transparent text-gray-300'
-                          }`}
-                        />
-                      ))}
-                    </div>
-                    <span className="text-[10px] text-gray-400">
-                      {pr.reviewerName || 'Anonymous Visitor'}
-                    </span>
-                  </div>
-                  <p className="text-xs font-bold text-gray-800 mb-1">{pr.reviewTitle}</p>
-                  <p className="text-xs text-gray-600 leading-normal">"{pr.reviewMessage}"</p>
-                </div>
+                  {val === 'ALL' ? 'All Reviews' : `${val} ★`}
+                </button>
               ))}
             </div>
-          )}
+
+            <span className="text-xs text-gray-500 font-semibold hidden sm:inline">
+              Verified Public Feedback from Homepage
+            </span>
+          </div>
+
+          {/* Public Reviews List */}
+          {(() => {
+            const list = (publicSummary?.reviews || publicReceivedReviews || []).filter((r) => {
+              if (publicStarFilter === 'ALL') return true;
+              return Math.round(r.rating || 5) === Number(publicStarFilter);
+            });
+
+            if (list.length === 0) {
+              return (
+                <div className="text-center py-10 text-xs text-gray-500 italic bg-gray-50 rounded-2xl border border-dashed border-gray-200 space-y-1">
+                  <p className="font-bold text-gray-700">No public reviews found matching this filter.</p>
+                  <p>When external visitors visit your agency profile on the homepage and submit reviews, they appear here.</p>
+                </div>
+              );
+            }
+
+            return (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {list.map((pr) => {
+                  const rRating = pr.rating || 5;
+                  const rName = pr.reviewerName || 'Anonymous Visitor';
+                  return (
+                    <div
+                      key={pr.reviewID || pr.id}
+                      className="p-5 rounded-2xl border bg-white shadow-2xs hover:shadow-md transition-all flex flex-col justify-between"
+                      style={{ borderColor: 'rgba(37, 42, 52, 0.1)' }}
+                    >
+                      <div>
+                        {/* Top: Avatar + Name + Stars */}
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2.5">
+                            <div className="w-8 h-8 rounded-full bg-[#161B26] text-[#08D9D6] flex items-center justify-center font-black text-xs uppercase">
+                              {rName.charAt(0)}
+                            </div>
+                            <div>
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-xs font-bold text-gray-900">{rName}</span>
+                                <span className="text-[9px] font-bold px-1.5 py-0.2 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
+                                  Visitor
+                                </span>
+                              </div>
+                              <span className="text-[10px] text-gray-400 block">
+                                {pr.reviewTime
+                                  ? new Date(pr.reviewTime).toLocaleDateString(undefined, {
+                                      month: 'short',
+                                      day: 'numeric',
+                                      year: 'numeric',
+                                    })
+                                  : 'Recently'}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-1">
+                            {[1, 2, 3, 4, 5].map((s) => (
+                              <Star
+                                key={s}
+                                className={`w-3.5 h-3.5 ${
+                                  s <= rRating
+                                    ? 'fill-amber-400 text-amber-500'
+                                    : 'fill-transparent text-gray-300'
+                                }`}
+                              />
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Title */}
+                        {pr.reviewTitle && (
+                          <h4 className="font-extrabold text-xs sm:text-sm text-gray-900 mb-1 leading-snug">
+                            {pr.reviewTitle}
+                          </h4>
+                        )}
+
+                        {/* Work reference */}
+                        {pr.workReference && (
+                          <div className="mb-2">
+                            <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-md bg-gray-50 border border-gray-200 text-gray-600">
+                              <Tag className="w-3 h-3 text-[#08D9D6]" />
+                              {pr.workReference}
+                            </span>
+                          </div>
+                        )}
+
+                        {/* Review message text */}
+                        <p className="text-xs text-gray-600 leading-relaxed font-normal">
+                          "{pr.reviewMessage}"
+                        </p>
+                      </div>
+
+                      <div className="mt-3 pt-2 border-t border-gray-100 flex items-center justify-between text-[10px] text-gray-400">
+                        <span>Submitted via Homepage Public Directory</span>
+                        <span className="text-emerald-600 font-bold">● Published</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
         </div>
       )}
 

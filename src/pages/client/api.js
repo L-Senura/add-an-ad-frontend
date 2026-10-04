@@ -239,10 +239,22 @@ export async function rejectClient(clientId) {
 
 /**
  * View all clients (optional filter by ?status=ACCEPTED/PENDING/REJECTED)
+ * Tries /api/admin/clients and /api/client
  */
 export async function getAllClients(status) {
   const query = status ? `?status=${encodeURIComponent(status)}` : '';
-  return request(`/api/admin/clients${query}`);
+  try {
+    return await request(`/api/admin/clients${query}`);
+  } catch (err) {
+    if (err.isNetworkError) throw err;
+    // If backend returned HTTP 401, 403 or 404, try public client listing endpoint
+    try {
+      return await request(`/api/client${query}`);
+    } catch (err2) {
+      if (err2.isNetworkError) throw err2;
+      throw err;
+    }
+  }
 }
 
 // -------------------------------------------------------------
