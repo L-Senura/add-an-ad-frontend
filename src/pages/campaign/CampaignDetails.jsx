@@ -17,6 +17,7 @@ import {
   DEFAULT_CAMPAIGN_TYPES,
 } from './campaignApi';
 import { getStoredAuthSession } from '../client/api';
+import logoImg from '../../assets/Add-an-Ad.png';
 
 export default function CampaignDetails({ onBackToHome, onCampaignCreated }) {
   const [clientSession] = useState(() => getStoredAuthSession());
@@ -159,14 +160,11 @@ export default function CampaignDetails({ onBackToHome, onCampaignCreated }) {
         </button>
 
         <div className="flex items-center space-x-3">
-          <div
-            className="w-9 h-9 rounded-xl flex items-center justify-center shadow-md font-extrabold text-[#252A34] text-base"
-            style={{
-              background: 'linear-gradient(135deg, #08D9D6 0%, #FF2E63 100%)',
-            }}
-          >
-            AD
-          </div>
+          <img
+            src={logoImg}
+            alt="Add-an-Ad Logo"
+            className="h-9 w-auto object-contain select-none"
+          />
           <span className="text-lg font-bold text-[#252A34]">
             Add-an-Ad
           </span>

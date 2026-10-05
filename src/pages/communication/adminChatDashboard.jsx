@@ -25,6 +25,7 @@ import {
 } from './communicationApi';
 import { getAllClients, getStoredAuthSession } from '../client/api';
 import AdminReviewDesk from './AdminReviewDesk';
+import logoImg from '../../assets/Add-an-Ad.png';
 
 // Sample client list for offline/demo reliability
 const DEMO_CHAT_CLIENTS = [
@@ -261,14 +262,11 @@ export default function AdminChatDashboard({ onBackToDashboard }) {
       {/* Top Navbar */}
       <header className="max-w-6xl mx-auto w-full flex flex-col sm:flex-row items-center justify-between gap-4 mb-6">
         <div className="flex items-center space-x-3">
-          <div
-            className="w-11 h-11 rounded-2xl flex items-center justify-center shadow-md font-extrabold text-[#252A34] text-lg tracking-wider"
-            style={{
-              background: 'linear-gradient(135deg, #08D9D6 0%, #FF2E63 100%)',
-            }}
-          >
-            AD
-          </div>
+          <img
+            src={logoImg}
+            alt="Add-an-Ad Logo"
+            className="h-10 w-auto object-contain select-none"
+          />
           <div>
             <div className="flex items-center gap-2">
               <span className="text-xl font-bold tracking-tight text-[#252A34]">

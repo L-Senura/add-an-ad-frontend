@@ -1,4 +1,6 @@
 import React from 'react';
+import { Link } from 'react-router-dom';
+import logoImg from '../../assets/Add-an-Ad.png';
 
 /**
  * Shared modern layout wrapper matching the user's wireframe rounded container
@@ -26,18 +28,15 @@ export default function AuthLayout({
     >
       {/* Top Brand Bar */}
       <header className="max-w-4xl mx-auto w-full flex flex-col sm:flex-row items-center justify-between gap-4 mb-6">
-        <div className="flex items-center space-x-3">
-          <div
-            className="w-10 h-10 rounded-xl flex items-center justify-center shadow-md font-extrabold text-white text-lg tracking-wider"
-            style={{
-              background: 'linear-gradient(135deg, #08D9D6 0%, #FF2E63 100%)',
-            }}
-          >
-            AD
-          </div>
+        <Link to="/" className="flex items-center space-x-3 group" title="Return to Homepage">
+          <img
+            src={logoImg}
+            alt="Add-an-Ad Logo"
+            className="h-10 w-auto object-contain select-none transition-transform group-hover:scale-105"
+          />
           <div>
             <span
-              className="text-xl font-bold tracking-tight"
+              className="text-xl font-bold tracking-tight group-hover:text-[#08D9D6] transition-colors"
               style={{ color: '#252A34' }}
             >
               Add-an-Ad
@@ -52,7 +51,7 @@ export default function AuthLayout({
               {activeRole === 'admin' ? 'Administration Portal' : 'Advertising Agency'}
             </span>
           </div>
-        </div>
+        </Link>
       </header>
 
       {/* Main Form Center Area */}

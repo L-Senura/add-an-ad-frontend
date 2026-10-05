@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Routes, Route, Navigate, NavLink, useLocation, useNavigate } from 'react-router-dom';
+import { Routes, Route, Navigate, NavLink, Link, useLocation, useNavigate } from 'react-router-dom';
+import logoImg from './assets/Add-an-Ad.png';
 import AuthPortal from './pages/client/AuthPortal';
 import ClientHome from './pages/client/ClientHome';
 import CampaignDetails from './pages/campaign/CampaignDetails';
@@ -206,13 +207,30 @@ function App() {
             {/* Left: Brand / Logo */}
             <div className="flex items-center space-x-3">
               {isClient ? (
-                <div className="px-3 py-1 bg-white text-[#161B26] font-extrabold text-xs sm:text-sm rounded shadow-xs tracking-wider uppercase border border-white/30 flex items-center gap-1.5 select-none">
-                  <span className="w-2 h-2 rounded-full bg-[#08D9D6]"></span>
-                  <span>Logo</span>
-                </div>
+                <Link
+                  to="/"
+                  title="Add-an-Ad Homepage"
+                  className="flex items-center group transition-transform hover:scale-105"
+                >
+                  <img
+                    src={logoImg}
+                    alt="Add-an-Ad Logo"
+                    className="h-8 sm:h-9 w-auto object-contain select-none"
+                  />
+                </Link>
               ) : (
                 <div className="flex items-center space-x-2 font-bold tracking-wide">
-                  <span className="w-2.5 h-2.5 rounded-full bg-[#FF2E63] animate-pulse" />
+                  <Link
+                    to="/"
+                    title="Add-an-Ad Homepage"
+                    className="flex items-center group transition-transform hover:scale-105"
+                  >
+                    <img
+                      src={logoImg}
+                      alt="Add-an-Ad Logo"
+                      className="h-7 sm:h-8 w-auto object-contain select-none"
+                    />
+                  </Link>
                   <span className="text-white text-base font-extrabold tracking-tight">Add-an-Ad</span>
                   <span className="text-white/40">|</span>
                   <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wider bg-[#FF2E63]/20 text-[#FF2E63] border border-[#FF2E63]/30">

@@ -19,6 +19,7 @@ import {
   logoutAdmin,
 } from '../client/api';
 import { BACKEND_API_ROUTES } from '../../services/api';
+import logoImg from '../../assets/Add-an-Ad.png';
 
 export default function PublicNavbar() {
   const navigate = useNavigate();
@@ -59,14 +60,14 @@ export default function PublicNavbar() {
           <div className="flex items-center space-x-3">
             <Link
               to="/"
-              className="group flex items-center gap-2.5 transition-transform hover:scale-102"
+              className="group flex items-center gap-2.5 transition-transform hover:scale-105"
               title="Add-an-Ad Homepage"
             >
-              {/* Distinctive Logo Box as in wireframe */}
-              <div className="px-3 py-1.5 bg-white text-[#161B26] font-black text-xs sm:text-sm rounded-md shadow-md tracking-wider uppercase border border-white/20 flex items-center gap-2 select-none group-hover:border-[#08D9D6] transition-colors">
-                <span className="w-2.5 h-2.5 rounded-full bg-[#08D9D6] animate-pulse" />
-                <span className="font-extrabold tracking-widest text-[#161B26]">Logo</span>
-              </div>
+              <img
+                src={logoImg}
+                alt="Add-an-Ad Logo"
+                className="h-9 sm:h-10 w-auto object-contain select-none"
+              />
             </Link>
 
             {/* Quick in-page nav pills for large screens */}

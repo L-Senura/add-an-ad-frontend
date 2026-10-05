@@ -14,6 +14,7 @@ import {
   Megaphone,
 } from 'lucide-react';
 import { BACKEND_API_ROUTES } from '../../services/api';
+import logoImg from '../../assets/Add-an-Ad.png';
 
 export default function PublicFooter() {
   return (
@@ -64,11 +65,14 @@ export default function PublicFooter() {
           
           {/* Col 1: Platform Info */}
           <div className="space-y-4">
-            <div className="flex items-center space-x-2">
-              <div className="px-2.5 py-1 bg-white text-[#161B26] font-extrabold text-xs rounded shadow-sm tracking-wider uppercase flex items-center gap-1.5 select-none">
-                <span className="w-2 h-2 rounded-full bg-[#08D9D6]"></span>
-                <span>Logo</span>
-              </div>
+            <div className="flex items-center space-x-2.5">
+              <Link to="/" title="Add-an-Ad Homepage" className="inline-flex items-center group transition-transform hover:scale-105">
+                <img
+                  src={logoImg}
+                  alt="Add-an-Ad Logo"
+                  className="h-8 w-auto object-contain select-none"
+                />
+              </Link>
               <span className="text-lg font-black text-white tracking-tight">Add-an-Ad</span>
             </div>
             <p className="text-xs text-gray-400 leading-relaxed">
