@@ -276,22 +276,95 @@ export async function deleteAdminMessage(adminId, messageId) {
 }
 
 /**
+ * View all messages sent by admin(s) to a specific client.
+ * Robust multi-tier resolution:
+ * 1. Checks dedicated client endpoint: GET /api/client_chat/{clientId}/admin_messages
+ * 2. Checks alternate admin endpoint: GET /api/admin_chat/to_client/{clientId}
+ * 3. Scans active admin endpoints (adminID 4 is Communication_Executive, plus 1, 2, 3, etc.)
+ * 4. Merges with local fallback store for offline reliability
+ */
+export async function getAdminMessagesForClient(clientId, adminId = null) {
+  // 1. Try dedicated ClientChatController endpoint
+  try {
+    const res = await request(`/api/client_chat/${clientId}/admin_messages`);
+    if (Array.isArray(res) && res.length > 0) {
+      return res;
+    }
+    if (Array.isArray(res) && res.length === 0) {
+      // Could be empty or newly created, also check other sources
+    }
+  } catch {
+    // try next
+  }
+
+  // 2. Try AdminChatController endpoint
+  try {
+    const res = await request(`/api/admin_chat/to_client/${clientId}`);
+    if (Array.isArray(res) && res.length > 0) {
+      return res;
+    }
+  } catch {
+    // try next
+  }
+
+  // 3. Resilient scan across known admin IDs:
+  // Admin 4 is Communication_Executive, Admin 1 is Marketing_Analyst, 2 is Task_Manager, 3 is Finance_Officer
+  try {
+    const adminIds = adminId ? [adminId, 4, 1, 2, 3] : [4, 1, 2, 3, 5];
+    const uniqueIds = [...new Set(adminIds)];
+    const settled = await Promise.allSettled(
+      uniqueIds.map((id) => request(`/api/admin_chat/admin/${id}`))
+    );
+
+    const merged = [];
+    for (const item of settled) {
+      if (item.status === 'fulfilled' && Array.isArray(item.value)) {
+        merged.push(...item.value);
+      }
+    }
+
+    const relevant = merged.filter((m) => String(m.clientID) === String(clientId));
+    if (relevant.length > 0) {
+      // Deduplicate by adminMessageID
+      const seen = new Set();
+      const deduped = [];
+      for (const m of relevant) {
+        const key = m.adminMessageID || `${m.adminID}-${m.adminMessageTime}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          deduped.push(m);
+        }
+      }
+      return deduped;
+    }
+  } catch {
+    // continue to demo store
+  }
+
+  // 4. In-memory demo store fallback
+  return demoAdminMessages.filter((m) => String(m.clientID) === String(clientId));
+}
+
+/**
  * Combined conversation thread getter for a given client
  */
-export async function getFullConversationThread(clientId, adminId = 1) {
+export async function getFullConversationThread(clientId, adminId = null) {
   try {
     const [clientMsgs, adminMsgs] = await Promise.all([
       getClientMessages(clientId),
-      getMessagesByAdminId(adminId),
+      getAdminMessagesForClient(clientId, adminId),
     ]);
 
+    const relevantClientMsgs = (clientMsgs || []).filter(
+      (m) => String(m.clientID) === String(clientId)
+    );
     const relevantAdminMsgs = (adminMsgs || []).filter(
       (m) => String(m.clientID) === String(clientId)
     );
 
     // Merge and sort chronologically
     const thread = [
-      ...(clientMsgs || []).map((m) => ({ ...m, sender: 'CLIENT' })),
+      ...relevantClientMsgs.map((m) => ({ ...m, sender: 'CLIENT' })),
       ...relevantAdminMsgs.map((m) => ({ ...m, sender: 'ADMIN' })),
     ].sort((a, b) => {
       const timeA = new Date(a.clientMessageTime || a.adminMessageTime || 0).getTime();
@@ -318,3 +391,4 @@ export async function getFullConversationThread(clientId, adminId = 1) {
     });
   }
 }
+

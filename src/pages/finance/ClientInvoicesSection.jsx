@@ -104,7 +104,7 @@ export default function ClientInvoicesSection({ clientId = 1, companyName = 'You
               Client Billing & Invoices Portal
             </h3>
             <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#08D9D6]/15 text-[#008280] border border-[#08D9D6]/30 uppercase">
-              Client #{clientId}
+              {companyName}
             </span>
           </div>
           <p className="text-xs text-gray-500 mt-0.5">
@@ -435,7 +435,7 @@ export default function ClientInvoicesSection({ clientId = 1, companyName = 'You
               </div>
               <div className="flex justify-between py-1 border-b border-gray-100">
                 <span className="text-gray-500">Billed Agency Client:</span>
-                <span className="font-bold text-[#252A34]">{companyName} (Client #{clientId})</span>
+                <span className="font-bold text-[#252A34]">{companyName}</span>
               </div>
               {viewingReceipt.campaignId && (
                 <div className="flex justify-between py-1 border-b border-gray-100">

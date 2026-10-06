@@ -14,12 +14,15 @@ import {
   Info,
   AlertCircle,
   FileText,
+  Pencil,
+  Lock,
 } from 'lucide-react';
 import {
   getClientTasks,
   getClientTasksByStatus,
   getTaskDetails,
   submitClientTask,
+  updateClientTask,
   cancelClientTask,
 } from './operationsApi';
 import { getCampaignsByClientId } from '../campaign/campaignApi';
@@ -43,6 +46,18 @@ export default function ClientTaskSubmissionSection({ clientId = 1, clientName =
   }));
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [cancellingTaskId, setCancellingTaskId] = useState(null);
+
+  // Edit Task Modal State (Client editing before admin assignment)
+  const [editingTask, setEditingTask] = useState(null);
+  const [editForm, setEditForm] = useState({
+    taskTitle: '',
+    taskDetails: '',
+    taskCategory: 'Graphic Design',
+    campaignId: '',
+    priority: 'MEDIUM',
+    clientDeadline: '',
+  });
+  const [isUpdating, setIsUpdating] = useState(false);
 
   // View Details Modal State
   const [viewingTask, setViewingTask] = useState(null);
@@ -174,6 +189,71 @@ export default function ClientTaskSubmissionSection({ clientId = 1, clientName =
       });
     } finally {
       setIsLoadingDetails(false);
+    }
+  };
+
+  // Open edit modal (before task is assigned to employee)
+  const handleOpenEdit = (task) => {
+    if (task.employeeId) {
+      setNotification({
+        type: 'error',
+        text: `Cannot edit Task #${task.id}: It has already been assigned to an employee (${task.employeeName || 'Staff'}).`,
+      });
+      return;
+    }
+    const status = String(task.status || '').toUpperCase();
+    if (status !== 'PENDING_COORDINATION' && status !== 'UNASSIGNED') {
+      setNotification({
+        type: 'error',
+        text: `Cannot edit Task #${task.id}: Current status is ${task.status}. Edits are only permitted prior to employee allocation.`,
+      });
+      return;
+    }
+
+    setEditingTask(task);
+    setEditForm({
+      taskTitle: task.taskTitle || '',
+      taskDetails: task.taskDetails || '',
+      taskCategory: task.taskCategory || 'Graphic Design',
+      campaignId: task.campaignId ? String(task.campaignId) : '',
+      priority: task.priority || 'MEDIUM',
+      clientDeadline: task.clientDeadline || '',
+    });
+  };
+
+  // Submit task edit (PUT /api/client_tasks/{taskId})
+  const handleUpdate = async (e) => {
+    e.preventDefault();
+    if (!editForm.taskTitle.trim() || !editForm.taskDetails.trim()) return;
+    if (!editingTask) return;
+
+    setIsUpdating(true);
+    try {
+      await updateClientTask(editingTask.id, {
+        clientId: Number(clientId),
+        clientName,
+        campaignId: editForm.campaignId ? Number(editForm.campaignId) : null,
+        taskTitle: editForm.taskTitle.trim(),
+        taskDetails: editForm.taskDetails.trim(),
+        taskCategory: editForm.taskCategory,
+        priority: editForm.priority,
+        clientDeadline: editForm.clientDeadline || null,
+      });
+
+      setNotification({
+        type: 'success',
+        text: `Task #${editingTask.id} updated successfully! Your revisions have been recorded.`,
+      });
+
+      setEditingTask(null);
+      await fetchTasks(statusFilter);
+    } catch (err) {
+      setNotification({
+        type: 'error',
+        text: err.message || 'Failed to update task.',
+      });
+    } finally {
+      setIsUpdating(false);
     }
   };
 
@@ -341,6 +421,14 @@ export default function ClientTaskSubmissionSection({ clientId = 1, clientName =
             const badge = getStatusBadge(task.status);
             const isCompleted = String(task.status).toLowerCase() === 'completed';
             const isCancelled = String(task.status).toLowerCase() === 'cancelled';
+            const isAssigned = Boolean(task.employeeId);
+            const canEdit =
+              !task.employeeId &&
+              !isCompleted &&
+              !isCancelled &&
+              (!task.status ||
+                String(task.status).toUpperCase() === 'PENDING_COORDINATION' ||
+                String(task.status).toUpperCase() === 'UNASSIGNED');
 
             return (
               <div
@@ -414,11 +502,32 @@ export default function ClientTaskSubmissionSection({ clientId = 1, clientName =
                   <button
                     type="button"
                     onClick={() => handleOpenDetails(task.id)}
-                    className="px-3 py-1.5 rounded-xl text-xs font-semibold border border-gray-300 hover:border-[#08D9D6] text-[#252A34] bg-white hover:bg-gray-50 flex items-center gap-1 cursor-pointer"
+                    className="px-3 py-1.5 rounded-xl text-xs font-semibold border border-gray-300 hover:border-[#08D9D6] text-[#252A34] bg-white hover:bg-gray-50 flex items-center gap-1 cursor-pointer transition-colors"
                   >
                     <Info className="w-3.5 h-3.5 text-[#08D9D6]" />
                     <span>Details</span>
                   </button>
+
+                  {/* Edit Button (PUT /api/client_tasks/{taskId}) - enabled BEFORE admin assigns to employee */}
+                  {canEdit ? (
+                    <button
+                      type="button"
+                      onClick={() => handleOpenEdit(task)}
+                      className="px-3 py-1.5 rounded-xl text-xs font-bold border border-amber-300 hover:border-amber-400 text-amber-800 bg-amber-50 hover:bg-amber-100 transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs"
+                      title="Edit this task brief before coordinator assigns it to production staff"
+                    >
+                      <Pencil className="w-3.5 h-3.5 text-amber-600" />
+                      <span>Edit</span>
+                    </button>
+                  ) : isAssigned ? (
+                    <span
+                      className="px-2.5 py-1 rounded-xl text-[11px] font-medium border border-gray-200 text-gray-400 bg-gray-50 flex items-center gap-1 cursor-not-allowed select-none"
+                      title={`Assigned to ${task.employeeName || 'Staff'} (Edits locked)`}
+                    >
+                      <Lock className="w-3 h-3 text-gray-400" />
+                      <span>Assigned</span>
+                    </span>
+                  ) : null}
 
                   {/* Cancel Button (PUT /api/client_tasks/{taskId}/cancel) */}
                   {!isCompleted && !isCancelled && (
@@ -641,7 +750,7 @@ export default function ClientTaskSubmissionSection({ clientId = 1, clientName =
                   {viewingTask.taskDetails}
                 </p>
               </div>
-              {viewingTask.coordinatorNotes && (
+            {viewingTask.coordinatorNotes && (
                 <div className="pt-2">
                   <span className="text-gray-500 block mb-1 font-semibold text-[#008280]">
                     Task Coordinator Instructions:
@@ -651,15 +760,206 @@ export default function ClientTaskSubmissionSection({ clientId = 1, clientName =
                   </p>
                 </div>
               )}
+
+              {/* Assignment / Edit status notice */}
+              {viewingTask.employeeId ? (
+                <div className="mt-2 p-2.5 rounded-xl bg-blue-50/80 border border-blue-200 text-blue-900 text-[11px] flex items-center gap-2">
+                  <Lock className="w-4 h-4 text-blue-600 shrink-0" />
+                  <span>
+                    This task has been assigned to <strong>{viewingTask.employeeName || 'staff'}</strong>. Revisions are locked.
+                  </span>
+                </div>
+              ) : (
+                <div className="mt-2 p-2.5 rounded-xl bg-amber-50/80 border border-amber-200 text-amber-800 text-[11px] flex items-center gap-2">
+                  <Pencil className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span>This task has not yet been assigned to an employee and can still be edited.</span>
+                </div>
+              )}
             </div>
 
+            <div className="mt-5 flex items-center gap-2">
+              {!viewingTask.employeeId &&
+                String(viewingTask.status || '').toUpperCase() === 'PENDING_COORDINATION' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const t = viewingTask;
+                      setViewingTask(null);
+                      handleOpenEdit(t);
+                    }}
+                    className="flex-1 py-2.5 rounded-xl font-bold text-xs border border-amber-300 text-amber-800 bg-amber-50 hover:bg-amber-100 flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
+                  >
+                    <Pencil className="w-3.5 h-3.5 text-amber-600" />
+                    <span>Edit Task</span>
+                  </button>
+                )}
+              <button
+                type="button"
+                onClick={() => setViewingTask(null)}
+                className="flex-1 py-2.5 rounded-xl font-bold text-xs text-white bg-[#252A34] hover:bg-[#1a1e26] cursor-pointer transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* EDIT TASK MODAL (PUT /api/client_tasks/{taskId}) */}
+      {editingTask && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-fade-in">
+          <div className="rounded-[32px] p-6 sm:p-8 bg-white border border-gray-200 shadow-2xl max-w-lg w-full relative max-h-[90vh] overflow-y-auto">
             <button
               type="button"
-              onClick={() => setViewingTask(null)}
-              className="mt-5 w-full py-2.5 rounded-xl font-bold text-xs text-white bg-[#252A34] hover:bg-[#1a1e26] cursor-pointer"
+              onClick={() => setEditingTask(null)}
+              className="absolute top-6 right-6 text-gray-400 hover:text-gray-600 cursor-pointer"
             >
-              Close
+              <X className="w-5 h-5" />
             </button>
+
+            <div className="flex items-center gap-2 mb-1">
+              <span className="p-2 rounded-xl bg-amber-100 text-amber-700">
+                <Pencil className="w-5 h-5" />
+              </span>
+              <div>
+                <h3 className="text-lg font-bold text-[#252A34]">
+                  Edit Task #{editingTask.id}
+                </h3>
+                <span className="inline-block text-[11px] font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200">
+                  Pre-assignment Stage (Editable)
+                </span>
+              </div>
+            </div>
+
+            <p className="text-xs text-gray-500 mb-4 mt-2">
+              Update task requirements, priority, category, or deadline before our Task Coordinator assigns it to an employee.
+            </p>
+
+            <form onSubmit={handleUpdate} className="space-y-4 text-xs">
+              <div>
+                <label className="block font-bold text-[#252A34] mb-1">
+                  Task Title <span className="text-[#FF2E63]">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={editForm.taskTitle}
+                  onChange={(e) => setEditForm({ ...editForm, taskTitle: e.target.value })}
+                  placeholder="e.g. Design 3 Video Story Banners for TikTok & Instagram"
+                  required
+                  className="w-full p-2.5 rounded-xl border border-gray-300 focus:outline-none focus:ring-1 focus:ring-[#08D9D6] text-[#252A34]"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-[#252A34] mb-1">Task Category</label>
+                  <select
+                    value={editForm.taskCategory}
+                    onChange={(e) => setEditForm({ ...editForm, taskCategory: e.target.value })}
+                    className="w-full p-2.5 rounded-xl border border-gray-300 focus:outline-none focus:ring-1 focus:ring-[#08D9D6] bg-white text-[#252A34]"
+                  >
+                    <option value="Graphic Design">Graphic Design & Creative</option>
+                    <option value="Video Production">Video Production & Reels</option>
+                    <option value="Copywriting">Copywriting & Slogans</option>
+                    <option value="Web Development">Landing Page & Web</option>
+                    <option value="Social Media">Social Media Campaign</option>
+                    <option value="General Marketing">General Marketing</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-bold text-[#252A34] mb-1">Urgency Priority</label>
+                  <select
+                    value={editForm.priority}
+                    onChange={(e) => setEditForm({ ...editForm, priority: e.target.value })}
+                    className="w-full p-2.5 rounded-xl border border-gray-300 focus:outline-none focus:ring-1 focus:ring-[#08D9D6] bg-white text-[#252A34]"
+                  >
+                    <option value="LOW">Low Priority</option>
+                    <option value="MEDIUM">Medium Priority (Standard)</option>
+                    <option value="HIGH">High Priority</option>
+                    <option value="URGENT">Urgent (Immediate Turnaround)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-[#252A34] mb-1">
+                    Related Campaign (Optional)
+                  </label>
+                  <select
+                    value={editForm.campaignId}
+                    onChange={(e) => setEditForm({ ...editForm, campaignId: e.target.value })}
+                    className="w-full p-2.5 rounded-xl border border-gray-300 focus:outline-none focus:ring-1 focus:ring-[#08D9D6] bg-white text-[#252A34]"
+                  >
+                    <option value="">General Agency Request (No Campaign)</option>
+                    {campaigns.map((c) => (
+                      <option key={c.campaignId} value={String(c.campaignId)}>
+                        #{c.campaignId} - {c.campaignName}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-bold text-[#252A34] mb-1">
+                    Desired Client Deadline
+                  </label>
+                  <input
+                    type="date"
+                    value={editForm.clientDeadline}
+                    onChange={(e) => setEditForm({ ...editForm, clientDeadline: e.target.value })}
+                    className="w-full p-2.5 rounded-xl border border-gray-300 focus:outline-none focus:ring-1 focus:ring-[#08D9D6] text-[#252A34]"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-[#252A34] mb-1">
+                  Task Requirements & Specifications <span className="text-[#FF2E63]">*</span>
+                </label>
+                <textarea
+                  rows="4"
+                  value={editForm.taskDetails}
+                  onChange={(e) => setEditForm({ ...editForm, taskDetails: e.target.value })}
+                  placeholder="Detail dimensions, copy guidelines, references, target channels, or specific creative requests..."
+                  required
+                  className="w-full p-2.5 rounded-xl border border-gray-300 focus:outline-none focus:ring-1 focus:ring-[#08D9D6] text-[#252A34]"
+                />
+              </div>
+
+              <div className="p-3 rounded-2xl bg-amber-50/70 border border-amber-200 text-amber-800 text-[11px] flex items-start gap-2">
+                <Info className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <span>
+                  <strong>Note:</strong> Once our administrator assigns this task to a Production Staff member, further edits will be locked to maintain workflow consistency.
+                </span>
+              </div>
+
+              <div className="pt-2 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingTask(null)}
+                  className="px-4 py-2 rounded-xl border border-gray-300 text-gray-700 font-semibold cursor-pointer hover:bg-gray-50 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isUpdating}
+                  className="px-5 py-2 rounded-xl font-bold text-[#252A34] shadow-md flex items-center gap-1.5 cursor-pointer hover:opacity-95 transition-opacity"
+                  style={{
+                    background: 'linear-gradient(135deg, #08D9D6 0%, #00b4b1 100%)',
+                  }}
+                >
+                  {isUpdating ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <CheckCircle2 className="w-4 h-4" />
+                  )}
+                  <span>Save Changes</span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

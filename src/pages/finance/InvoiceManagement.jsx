@@ -135,6 +135,25 @@ export default function InvoiceManagement({ onBackToDashboard }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Helper: Retrieve client company name by clientId
+  const getClientCompanyName = (clientId) => {
+    if (!clientId && clientId !== 0) return 'Client Agency';
+    const client = clients.find((c) => String(c.clientID) === String(clientId));
+    if (client?.companyName && client.companyName.trim()) {
+      return client.companyName;
+    }
+    if (client?.firstName || client?.lastName) {
+      return `${client.firstName || ''} ${client.lastName || ''}`.trim();
+    }
+    return client?.name || 'Client Agency';
+  };
+
+  // Helper: Retrieve client company name directly from invoice or client map
+  const getInvoiceCompanyName = (inv) => {
+    if (inv?.companyName && inv.companyName.trim()) return inv.companyName;
+    return getClientCompanyName(inv?.clientId);
+  };
+
   // Backend Filter effect: when filterCategory, filterStatus, or filterClient changes
   const applyFilters = async () => {
     setIsFiltering(true);
@@ -228,10 +247,14 @@ export default function InvoiceManagement({ onBackToDashboard }) {
     setNotification(null);
 
     try {
+      const clientCompany = getClientCompanyName(selectedClientId);
       const response = await generateCampaignInvoices(
         selectedCampaignId,
         platformCharge,
-        selectedCampaign
+        {
+          ...selectedCampaign,
+          companyName: clientCompany,
+        }
       );
 
       setNotification({
@@ -269,10 +292,14 @@ export default function InvoiceManagement({ onBackToDashboard }) {
     setNotification(null);
 
     try {
-      const created = await createInvoice(manualForm);
+      const clientCompany = getClientCompanyName(manualForm.clientId);
+      const created = await createInvoice({
+        ...manualForm,
+        companyName: clientCompany,
+      });
       setNotification({
         type: 'success',
-        text: `Invoice #${created.invoiceId || 'NEW'} created successfully for Client #${manualForm.clientId} (Rs. ${Number(
+        text: `Invoice #${created.invoiceId || 'NEW'} created successfully for ${clientCompany} (Rs. ${Number(
           manualForm.categoryPrice
         ).toLocaleString()}).`,
       });
@@ -369,11 +396,14 @@ export default function InvoiceManagement({ onBackToDashboard }) {
   const handleConfirmDelete = async () => {
     if (!deletingInvoice) return;
     setIsDeleting(true);
+    const targetId = deletingInvoice.invoiceId;
     try {
-      await deleteInvoice(deletingInvoice.invoiceId);
+      await deleteInvoice(targetId);
+      // Immediately remove from local state
+      setInvoices((prev) => prev.filter((i) => String(i.invoiceId) !== String(targetId)));
       setNotification({
         type: 'success',
-        text: `Invoice #${deletingInvoice.invoiceId} removed from records.`,
+        text: `Invoice #${targetId} removed from records.`,
       });
       setDeletingInvoice(null);
       await loadData();
@@ -391,9 +421,11 @@ export default function InvoiceManagement({ onBackToDashboard }) {
   const displayedInvoices = invoices.filter((inv) => {
     const q = searchQuery.toLowerCase().trim();
     if (!q) return true;
+    const clientCompany = getInvoiceCompanyName(inv).toLowerCase();
     return (
       String(inv.invoiceId).includes(q) ||
       String(inv.clientId).includes(q) ||
+      clientCompany.includes(q) ||
       String(inv.campaignId || '').includes(q) ||
       inv.clientDescription?.toLowerCase().includes(q) ||
       inv.chargedCategory?.toLowerCase().includes(q) ||
@@ -651,7 +683,7 @@ export default function InvoiceManagement({ onBackToDashboard }) {
                   <option value="ALL">All Clients</option>
                   {clients.map((c) => (
                     <option key={c.clientID} value={c.clientID}>
-                      Client #{c.clientID} - {c.companyName}
+                      {c.companyName || `${c.firstName || ''} ${c.lastName || ''}`.trim() || `Client #${c.clientID}`}
                     </option>
                   ))}
                 </select>
@@ -776,9 +808,9 @@ export default function InvoiceManagement({ onBackToDashboard }) {
                         </p>
 
                         <div className="flex flex-wrap items-center gap-3 text-[11px] text-gray-400">
-                          <span className="flex items-center gap-1">
-                            <User className="w-3 h-3" />
-                            Client #{inv.clientId}
+                          <span className="flex items-center gap-1 font-semibold text-gray-700">
+                            <User className="w-3 h-3 text-[#08D9D6]" />
+                            {getInvoiceCompanyName(inv)}
                           </span>
                           {inv.campaignId && (
                             <span className="flex items-center gap-1">
@@ -891,7 +923,7 @@ export default function InvoiceManagement({ onBackToDashboard }) {
                   >
                     {clients.map((c) => (
                       <option key={c.clientID} value={c.clientID}>
-                        {c.companyName} (Client #{c.clientID})
+                        {c.companyName || `${c.firstName || ''} ${c.lastName || ''}`.trim() || `Client #${c.clientID}`}
                       </option>
                     ))}
                   </select>
@@ -1076,7 +1108,7 @@ export default function InvoiceManagement({ onBackToDashboard }) {
                     <option value="">Select a client...</option>
                     {clients.map((c) => (
                       <option key={c.clientID} value={c.clientID}>
-                        {c.companyName} (#{c.clientID})
+                        {c.companyName || `${c.firstName || ''} ${c.lastName || ''}`.trim() || `Client #${c.clientID}`}
                       </option>
                     ))}
                   </select>
@@ -1295,7 +1327,7 @@ export default function InvoiceManagement({ onBackToDashboard }) {
                     {(report?.invoiceList || invoices).map((i) => (
                       <tr key={i.invoiceId} className="hover:bg-gray-50">
                         <td className="py-2.5 px-3 font-bold text-[#252A34]">#{i.invoiceId}</td>
-                        <td className="py-2.5 px-3">Client #{i.clientId}</td>
+                        <td className="py-2.5 px-3 font-semibold text-[#252A34]">{getInvoiceCompanyName(i)}</td>
                         <td className="py-2.5 px-3">{i.chargedCategory}</td>
                         <td className="py-2.5 px-3 font-extrabold text-[#252A34]">
                           Rs. {(i.categoryPrice || 0).toLocaleString()}
@@ -1351,8 +1383,8 @@ export default function InvoiceManagement({ onBackToDashboard }) {
                 </span>
               </div>
               <div className="flex justify-between text-gray-500">
-                <span>Client ID:</span>
-                <span>#{payingInvoice.clientId}</span>
+                <span>Client:</span>
+                <span className="font-semibold text-[#252A34]">{getClientCompanyName(payingInvoice.clientId)}</span>
               </div>
             </div>
 
@@ -1406,7 +1438,7 @@ export default function InvoiceManagement({ onBackToDashboard }) {
               Edit Invoice #{editingInvoice.invoiceId}
             </h3>
             <p className="text-xs text-gray-500 mb-4">
-              Update billing details, category, or payment status.
+              Client: <span className="font-semibold text-[#252A34]">{getClientCompanyName(editingInvoice.clientId)}</span> • Update billing details, category, or payment status.
             </p>
 
             <form onSubmit={handleSaveEdit} className="space-y-3.5">
@@ -1530,8 +1562,8 @@ export default function InvoiceManagement({ onBackToDashboard }) {
             </h3>
             <p className="text-xs text-gray-500 mb-5">
               This action will remove the invoice record of Rs.{' '}
-              {Number(deletingInvoice.categoryPrice || 0).toLocaleString()} for Client #
-              {deletingInvoice.clientId}.
+              {Number(deletingInvoice.categoryPrice || 0).toLocaleString()} for{' '}
+              <span className="font-semibold text-[#252A34]">{getClientCompanyName(deletingInvoice.clientId)}</span>.
             </p>
 
             <div className="flex gap-2">
@@ -1591,8 +1623,8 @@ export default function InvoiceManagement({ onBackToDashboard }) {
                 <span className="font-bold text-[#252A34]">#INV-{viewingReceipt.invoiceId}</span>
               </div>
               <div className="flex justify-between py-1 border-b border-gray-100">
-                <span className="text-gray-500">Billed Client ID:</span>
-                <span className="font-bold text-[#252A34]">Client #{viewingReceipt.clientId}</span>
+                <span className="text-gray-500">Billed Client Company:</span>
+                <span className="font-bold text-[#252A34]">{getInvoiceCompanyName(viewingReceipt)}</span>
               </div>
               {viewingReceipt.campaignId && (
                 <div className="flex justify-between py-1 border-b border-gray-100">

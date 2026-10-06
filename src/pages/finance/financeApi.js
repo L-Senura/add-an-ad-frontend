@@ -12,6 +12,7 @@ const INITIAL_DEMO_INVOICES = [
   {
     invoiceId: 1001,
     clientId: 1,
+    companyName: 'Nova Marketing Agency',
     campaignId: 1,
     chargedCategory: 'Campaign Charges',
     categoryPrice: 2000.0,
@@ -23,6 +24,7 @@ const INITIAL_DEMO_INVOICES = [
   {
     invoiceId: 1002,
     clientId: 1,
+    companyName: 'Nova Marketing Agency',
     campaignId: 1,
     chargedCategory: 'Platform Charges',
     categoryPrice: 500.0,
@@ -34,6 +36,7 @@ const INITIAL_DEMO_INVOICES = [
   {
     invoiceId: 1003,
     clientId: 1,
+    companyName: 'Nova Marketing Agency',
     campaignId: 2,
     chargedCategory: 'Campaign Charges',
     categoryPrice: 2500.0,
@@ -45,6 +48,7 @@ const INITIAL_DEMO_INVOICES = [
   {
     invoiceId: 1004,
     clientId: 1,
+    companyName: 'Nova Marketing Agency',
     campaignId: 2,
     chargedCategory: 'Platform Charges',
     categoryPrice: 500.0,
@@ -56,6 +60,7 @@ const INITIAL_DEMO_INVOICES = [
   {
     invoiceId: 1005,
     clientId: 101,
+    companyName: 'OmniVanguard Digital',
     campaignId: 3,
     chargedCategory: 'Campaign Charges',
     categoryPrice: 1800.0,
@@ -67,6 +72,7 @@ const INITIAL_DEMO_INVOICES = [
   {
     invoiceId: 1006,
     clientId: 101,
+    companyName: 'OmniVanguard Digital',
     campaignId: 3,
     chargedCategory: 'Platform Charges',
     categoryPrice: 500.0,
@@ -173,12 +179,14 @@ export async function generateCampaignInvoices(campaignId, platformCharge = 500.
     // Offline / demo fallback generator
     const campPrice = Number(campaignDetails?.campaignPrices || 2000.0);
     const clientRefId = Number(campaignDetails?.clientID || 1);
+    const clientCompany = campaignDetails?.companyName || campaignDetails?.clientCompanyName || '';
     const campName = campaignDetails?.campaignName || `Campaign #${campaignId}`;
     const channels = campaignDetails?.selectedChannels || 'Standard ad placement';
 
     const campInvoice = {
       invoiceId: Date.now(),
       clientId: clientRefId,
+      companyName: clientCompany,
       campaignId: Number(campaignId),
       chargedCategory: 'Campaign Charges',
       categoryPrice: campPrice,
@@ -191,6 +199,7 @@ export async function generateCampaignInvoices(campaignId, platformCharge = 500.
     const platInvoice = {
       invoiceId: Date.now() + 1,
       clientId: clientRefId,
+      companyName: clientCompany,
       campaignId: Number(campaignId),
       chargedCategory: 'Platform Charges',
       categoryPrice: pCharge,
@@ -221,6 +230,7 @@ export async function generateCampaignInvoices(campaignId, platformCharge = 500.
 export async function createInvoice(invoiceData) {
   const payload = {
     clientId: Number(invoiceData.clientId),
+    companyName: invoiceData.companyName || '',
     campaignId: invoiceData.campaignId ? Number(invoiceData.campaignId) : null,
     chargedCategory: invoiceData.chargedCategory || 'Platform Charges',
     categoryPrice: Number(invoiceData.categoryPrice),
@@ -237,6 +247,7 @@ export async function createInvoice(invoiceData) {
     const newInv = {
       invoiceId: Date.now(),
       clientId: payload.clientId,
+      companyName: payload.companyName,
       campaignId: payload.campaignId,
       chargedCategory: payload.chargedCategory,
       categoryPrice: payload.categoryPrice,
@@ -329,11 +340,14 @@ export async function updateInvoice(invoiceId, updatedFields) {
  */
 export async function deleteInvoice(invoiceId) {
   try {
-    return await request(`/api/finance/invoice/${invoiceId}`, {
+    const res = await request(`/api/finance/invoice/${invoiceId}`, {
       method: 'DELETE',
     });
+    demoInvoices = demoInvoices.filter((i) => String(i.invoiceId) !== String(invoiceId));
+    saveStoredInvoices(demoInvoices);
+    return res;
   } catch {
-    demoInvoices = demoInvoices.filter((i) => i.invoiceId !== Number(invoiceId));
+    demoInvoices = demoInvoices.filter((i) => String(i.invoiceId) !== String(invoiceId));
     saveStoredInvoices(demoInvoices);
     return {
       success: true,

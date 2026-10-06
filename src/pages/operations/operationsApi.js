@@ -371,6 +371,67 @@ export async function getTaskDetails(taskId) {
 }
 
 /**
+ * Client updates / edits their submitted task before it is assigned to an employee by admin.
+ * PUT /api/client_tasks/{taskId}
+ */
+export async function updateClientTask(taskId, taskData) {
+  const payload = {
+    clientId: taskData.clientId ? Number(taskData.clientId) : undefined,
+    clientName: taskData.clientName || undefined,
+    campaignId: taskData.campaignId ? Number(taskData.campaignId) : null,
+    taskTitle: taskData.taskTitle?.trim(),
+    taskDetails: taskData.taskDetails?.trim(),
+    taskCategory: taskData.taskCategory || 'General Marketing',
+    priority: taskData.priority || 'MEDIUM',
+    clientDeadline: taskData.clientDeadline || null,
+  };
+
+  try {
+    return await request(`/api/client_tasks/${taskId}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    });
+  } catch (err) {
+    if (!err.isNetworkError) {
+      throw err;
+    }
+
+    // Local/offline fallback simulation
+    const taskIndex = demoTasks.findIndex((t) => Number(t.id) === Number(taskId));
+    if (taskIndex === -1) {
+      throw new Error(`Task with ID ${taskId} not found.`);
+    }
+
+    const task = demoTasks[taskIndex];
+    if (task.employeeId) {
+      throw new Error(
+        `Cannot edit task: It has already been assigned to an employee (${task.employeeName || 'ID: ' + task.employeeId}).`
+      );
+    }
+    const status = String(task.status || '').toUpperCase();
+    if (
+      status === 'ASSIGNED' ||
+      status === 'IN PROGRESS' ||
+      status === 'COMPLETED' ||
+      status === 'CANCELLED'
+    ) {
+      throw new Error(`Cannot edit task: Current status is ${task.status}.`);
+    }
+
+    demoTasks[taskIndex] = {
+      ...task,
+      ...payload,
+      id: task.id,
+      clientId: task.clientId,
+      status: task.status,
+      createdAt: task.createdAt,
+    };
+    saveStoredTasks(demoTasks);
+    return demoTasks[taskIndex];
+  }
+}
+
+/**
  * Client cancels a task if it has not yet been completed.
  * PUT /api/client_tasks/{taskId}/cancel
  */

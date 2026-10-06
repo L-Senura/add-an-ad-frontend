@@ -119,7 +119,7 @@ export default function AdminChatDashboard({ onBackToDashboard }) {
   // Load conversation for the selected client
   const loadThread = async (cId) => {
     setIsLoadingThread(true);
-    const resolvedAdminId = adminSession?.userId || 1;
+    const resolvedAdminId = adminSession?.userId || 4;
     try {
       const thread = await getFullConversationThread(cId, resolvedAdminId);
       setThreadMessages(thread);
@@ -133,9 +133,10 @@ export default function AdminChatDashboard({ onBackToDashboard }) {
   useEffect(() => {
     let isMounted = true;
     isFirstLoadRef.current = true;
+    const resolvedAdminId = adminSession?.userId || 4;
+
     async function fetchThread() {
       if (!selectedClientId) return;
-      const resolvedAdminId = adminSession?.userId || 1;
       try {
         const thread = await getFullConversationThread(selectedClientId, resolvedAdminId);
         if (isMounted) {
@@ -148,8 +149,27 @@ export default function AdminChatDashboard({ onBackToDashboard }) {
       }
     }
     fetchThread();
+
+    const interval = setInterval(async () => {
+      if (!selectedClientId) return;
+      try {
+        const thread = await getFullConversationThread(selectedClientId, resolvedAdminId);
+        if (isMounted && Array.isArray(thread)) {
+          setThreadMessages((prev) => {
+            if (prev.length === thread.length && JSON.stringify(prev) === JSON.stringify(thread)) {
+              return prev;
+            }
+            return thread;
+          });
+        }
+      } catch {
+        // silent
+      }
+    }, 3500);
+
     return () => {
       isMounted = false;
+      clearInterval(interval);
     };
   }, [selectedClientId, adminSession?.userId]);
 
@@ -207,7 +227,7 @@ export default function AdminChatDashboard({ onBackToDashboard }) {
 
   const handleSaveEdit = async (msgId) => {
     if (!editText.trim()) return;
-    const resolvedAdminId = adminSession?.userId || 1;
+    const resolvedAdminId = adminSession?.userId || 4;
     try {
       await updateAdminMessage(resolvedAdminId, msgId, editText.trim());
       setEditingMessageId(null);
@@ -219,7 +239,7 @@ export default function AdminChatDashboard({ onBackToDashboard }) {
 
   const handleDelete = async (msgId) => {
     if (!window.confirm('Delete your admin message?')) return;
-    const resolvedAdminId = adminSession?.userId || 1;
+    const resolvedAdminId = adminSession?.userId || 4;
     try {
       await deleteAdminMessage(resolvedAdminId, msgId);
       await loadThread(selectedClientId);
@@ -262,16 +282,16 @@ export default function AdminChatDashboard({ onBackToDashboard }) {
       {/* Top Navbar */}
       <header className="max-w-6xl mx-auto w-full flex flex-col sm:flex-row items-center justify-between gap-4 mb-6">
         <div className="flex items-center space-x-3">
-          <img
+          {/* <img
             src={logoImg}
             alt="Add-an-Ad Logo"
             className="h-10 w-auto object-contain select-none"
-          />
+          /> */}
           <div>
             <div className="flex items-center gap-2">
-              <span className="text-xl font-bold tracking-tight text-[#252A34]">
+              {/* <span className="text-xl font-bold tracking-tight text-[#252A34]">
                 Add-an-Ad
-              </span>
+              </span> */}
               <span
                 className="text-[11px] font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wider text-white bg-[#FF2E63]"
               >
@@ -473,7 +493,7 @@ export default function AdminChatDashboard({ onBackToDashboard }) {
 
                   return (
                     <div
-                      key={msg.adminMessageID || msg.clientMessageID || idx}
+                      key={isAdmin ? `admin-${msg.adminMessageID || idx}` : `client-${msg.clientMessageID || idx}`}
                       className={`flex flex-col ${isAdmin ? 'items-end' : 'items-start'} group`}
                     >
                       {/* Sender label */}

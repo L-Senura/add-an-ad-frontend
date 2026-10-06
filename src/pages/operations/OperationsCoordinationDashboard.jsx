@@ -407,16 +407,16 @@ export default function OperationsCoordinationDashboard({ onBackToDashboard }) {
       {/* Header */}
       <header className="max-w-6xl mx-auto w-full flex flex-col sm:flex-row items-center justify-between gap-4 mb-8">
         <div className="flex items-center space-x-3">
-          <img
+          {/* <img
             src={logoImg}
             alt="Add-an-Ad Logo"
             className="h-10 w-auto object-contain select-none"
-          />
+          /> */}
           <div>
             <div className="flex items-center gap-2">
-              <span className="text-xl font-bold tracking-tight text-[#252A34]">
+              {/* <span className="text-xl font-bold tracking-tight text-[#252A34]">
                 Add-an-Ad
-              </span>
+              </span> */}
               <span
                 className="text-[11px] font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wider text-white bg-[#252A34]"
               >

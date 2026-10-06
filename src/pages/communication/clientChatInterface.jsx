@@ -87,7 +87,7 @@ export default function ClientChatInterface({ clientId = 1, clientName = 'Your A
       } catch {
         // silent
       }
-    }, 8000);
+    }, 3500);
 
     return () => {
       isMounted = false;
@@ -250,7 +250,7 @@ export default function ClientChatInterface({ clientId = 1, clientName = 'Your A
 
             return (
               <div
-                key={msg.clientMessageID || msg.adminMessageID || index}
+                key={isClient ? `client-${msg.clientMessageID || index}` : `admin-${msg.adminMessageID || index}`}
                 className={`flex flex-col ${isClient ? 'items-end' : 'items-start'} group`}
               >
                 {/* Sender badge header */}
@@ -260,7 +260,7 @@ export default function ClientChatInterface({ clientId = 1, clientName = 'Your A
                   ) : (
                     <span className="flex items-center gap-1 text-[#FF2E63] font-bold">
                       <Shield className="w-3 h-3" />
-                      Admin Executive
+                      Add-an-Ad Executive
                     </span>
                   )}
                   <span>•</span>
@@ -302,7 +302,7 @@ export default function ClientChatInterface({ clientId = 1, clientName = 'Your A
                       className={`p-3.5 rounded-2xl text-xs sm:text-sm leading-relaxed shadow-xs transition-all ${
                         isClient
                           ? 'text-[#252A34] font-medium rounded-tr-xs'
-                          : 'bg-white border border-gray-200 text-[#252A34] rounded-tl-xs'
+                          : 'bg-white border border-gray-200 text-[#252A34] rounded-tl-xs shadow-xs'
                       }`}
                       style={{
                         background: isClient
@@ -311,14 +311,26 @@ export default function ClientChatInterface({ clientId = 1, clientName = 'Your A
                       }}
                     >
                       {/* If replying to a specific client msg */}
-                      {msg.clientMessageID && !isClient && (
-                        <div
-                          className="mb-2 p-1.5 rounded-lg border-l-2 text-[11px] bg-gray-50 border-[#08D9D6] text-gray-500 line-clamp-1"
-                        >
-                          Replying to inquiry #{msg.clientMessageID}
-                        </div>
-                      )}
-                      <p>{msg.clientMessage || msg.adminMessage}</p>
+                      {msg.clientMessageID && !isClient && (() => {
+                        const referenced = messages.find(
+                          (m) => m.sender === 'CLIENT' && String(m.clientMessageID) === String(msg.clientMessageID)
+                        );
+                        return (
+                          <div
+                            className="mb-2 p-2 rounded-xl border-l-4 text-[11px] bg-gray-50 border-[#08D9D6] text-gray-600 shadow-2xs"
+                          >
+                            <span className="font-bold text-[#08D9D6] block text-[10px] uppercase tracking-wider">
+                              In reply to your inquiry #{msg.clientMessageID}
+                            </span>
+                            {referenced?.clientMessage ? (
+                              <p className="line-clamp-2 italic text-gray-500 mt-0.5">
+                                "{referenced.clientMessage}"
+                              </p>
+                            ) : null}
+                          </div>
+                        );
+                      })()}
+                      <p className="whitespace-pre-wrap">{msg.adminMessage || msg.clientMessage}</p>
                     </div>
                   )}
 
