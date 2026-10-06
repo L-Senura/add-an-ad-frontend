@@ -302,6 +302,33 @@ export default function ClientHome({ onPostAdvertisement, onLogout }) {
     }
 
     loadClientData();
+
+    const handleMarketingTelemetry = () => {
+      const session = getStoredAuthSession();
+      const currentId = session?.clientID || session?.clientId || session?.id || 1;
+      getAnalysisByClientId(currentId)
+        .then((analyses) => {
+          if (Array.isArray(analyses) && analyses.length > 0) {
+            const totalViews = analyses.reduce(
+              (acc, a) => acc + (Number(a.campaignViews) || 0),
+              0
+            );
+            const totalClicks = analyses.reduce((acc, a) => acc + (Number(a.clicks) || 0), 0);
+            const avgCtr =
+              totalViews > 0 ? ((totalClicks / totalViews) * 100).toFixed(2) : '0.00';
+            setMarketingSummary({ views: totalViews, clicks: totalClicks, ctr: avgCtr });
+          }
+        })
+        .catch(() => {});
+    };
+
+    window.addEventListener('marketing_telemetry_updated', handleMarketingTelemetry);
+    window.addEventListener('storage', handleMarketingTelemetry);
+
+    return () => {
+      window.removeEventListener('marketing_telemetry_updated', handleMarketingTelemetry);
+      window.removeEventListener('storage', handleMarketingTelemetry);
+    };
   }, []);
 
   // Recalculate price when channels toggle in New Campaign Modal

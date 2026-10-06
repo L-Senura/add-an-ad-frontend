@@ -49,8 +49,17 @@ export default function ClientMarketingSection({ clientId = 1, companyName = 'Yo
       }
     }
     load();
+
+    const handleTelemetryUpdated = () => {
+      load();
+    };
+    window.addEventListener('marketing_telemetry_updated', handleTelemetryUpdated);
+    window.addEventListener('storage', handleTelemetryUpdated);
+
     return () => {
       isMounted = false;
+      window.removeEventListener('marketing_telemetry_updated', handleTelemetryUpdated);
+      window.removeEventListener('storage', handleTelemetryUpdated);
     };
   }, [clientId]);
 
@@ -252,27 +261,14 @@ export default function ClientMarketingSection({ clientId = 1, companyName = 'Yo
                     </div>
                   </div>
 
-                  {/* Progress bar */}
-                  <div className="mb-3">
-                    <div className="flex justify-between items-center text-xs mb-1">
-                      <span className="text-[11px] font-semibold text-gray-500 flex items-center gap-1">
-                        <Activity className="w-3 h-3 text-[#08D9D6]" /> Progress:
-                      </span>
-                      <span className="font-extrabold text-[11px] text-[#252A34]">
-                        {item.campaignProgress || `${percent}%`}
-                      </span>
-                    </div>
-                    <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
-                      <div
-                        className="h-full rounded-full transition-all duration-500"
-                        style={{
-                          width: `${percent}%`,
-                          background: isConcluded
-                            ? '#252A34'
-                            : 'linear-gradient(90deg, #08D9D6 0%, #FF2E63 100%)',
-                        }}
-                      />
-                    </div>
+                  {/* Status (Progress bar removed) */}
+                  <div className="mb-3 flex items-center justify-between py-1 px-2.5 rounded-lg bg-gray-100/70 border border-gray-200/50">
+                    <span className="text-[11px] font-semibold text-gray-500 flex items-center gap-1">
+                      <Activity className="w-3 h-3 text-[#08D9D6]" /> Status:
+                    </span>
+                    <span className="font-extrabold text-[11px] text-[#252A34]">
+                      {item.campaignProgress || 'Active'}
+                    </span>
                   </div>
 
                   {/* Remarks */}

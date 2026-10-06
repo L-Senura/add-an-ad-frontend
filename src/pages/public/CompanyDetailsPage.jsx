@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import React, { useState, useEffect, useRef } from 'react';
+import { useParams, useNavigate, Link, useSearchParams } from 'react-router-dom';
 import {
   Building2,
   Star,
@@ -27,6 +27,10 @@ import {
   ChevronRight,
   Loader2,
   Share2,
+  Eye,
+  MousePointerClick,
+  ExternalLink,
+  X,
 } from 'lucide-react';
 import PublicNavbar from './PublicNavbar';
 import PublicFooter from './PublicFooter';
@@ -37,15 +41,25 @@ import {
   getClientReviewSummary,
   submitPublicReviewForClient,
 } from '../communication/reviewApi';
+import {
+  recordExternalCampaignClick,
+  recordExternalCampaignView,
+  getAnalysisByClientId,
+} from '../marketing/marketingApi';
 
 export default function CompanyDetailsPage() {
   const { id } = useParams();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
 
   const [company, setCompany] = useState(null);
   const [reviews, setReviews] = useState([]);
   const [summary, setSummary] = useState(null);
   const [campaigns, setCampaigns] = useState([]);
+  const [marketingAnalyses, setMarketingAnalyses] = useState([]);
+  const [selectedCampaignModal, setSelectedCampaignModal] = useState(null);
+  const [campaignNotification, setCampaignNotification] = useState(null);
+  const hasTrackedViewsRef = useRef(false);
   const [loading, setLoading] = useState(true);
 
   // Backend connection status states
@@ -68,7 +82,7 @@ export default function CompanyDetailsPage() {
   const [starFilter, setStarFilter] = useState('ALL');
   const [sortBy, setSortBy] = useState('newest'); // 'newest' | 'highest' | 'lowest'
 
-  // Fetch company details, reviews, and summary from backend
+  // Fetch company details, reviews, summary, and marketing analyses
   const loadData = async (forceDemo = false) => {
     setLoading(true);
     setBackendError(null);
@@ -77,11 +91,29 @@ export default function CompanyDetailsPage() {
       setCompany(res.company);
       setReviews(res.reviews || []);
       setSummary(res.summary);
-      setCampaigns(res.campaigns || res.company?.campaigns || []);
+      const campList = res.campaigns || res.company?.campaigns || [];
+      setCampaigns(campList);
       setBackendConnected(res.connected);
       if (res.connected) {
         sessionStorage.removeItem('addanad_offline_demo');
         setIsOfflineDemoMode(false);
+      }
+
+      // Load marketing analyses
+      getAnalysisByClientId(id)
+        .then((analyses) => setMarketingAnalyses(analyses || []))
+        .catch(() => {});
+
+      // Automatically increment views for all campaigns when external user visits this page
+      if (Array.isArray(campList) && campList.length > 0 && !hasTrackedViewsRef.current) {
+        hasTrackedViewsRef.current = true;
+        campList.forEach((camp) => {
+          recordExternalCampaignView({
+            campaignId: camp.campaignId,
+            clientId: id,
+            campaignName: camp.campaignName,
+          }).catch(() => {});
+        });
       }
     } catch (err) {
       console.warn('Backend connection failed in CompanyDetailsPage:', err);
@@ -98,7 +130,94 @@ export default function CompanyDetailsPage() {
   useEffect(() => {
     loadData();
     window.scrollTo({ top: 0, behavior: 'smooth' });
+
+    const handleTelemetryUpdated = () => {
+      getAnalysisByClientId(id)
+        .then((analyses) => setMarketingAnalyses(analyses || []))
+        .catch(() => {});
+    };
+    window.addEventListener('marketing_telemetry_updated', handleTelemetryUpdated);
+    window.addEventListener('storage', handleTelemetryUpdated);
+
+    return () => {
+      window.removeEventListener('marketing_telemetry_updated', handleTelemetryUpdated);
+      window.removeEventListener('storage', handleTelemetryUpdated);
+    };
   }, [id]);
+
+  // Handle external user clicking on a campaign: Automatically increase view & click count
+  const handleCampaignClick = async (camp) => {
+    try {
+      // 1. Automatically increment views and clicks in database & local storage
+      await recordExternalCampaignClick({
+        campaignId: camp.campaignId,
+        clientId: id,
+        campaignName: camp.campaignName,
+      });
+
+      // 2. Fetch updated marketing telemetry
+      const updatedAnalyses = await getAnalysisByClientId(id);
+      setMarketingAnalyses(updatedAnalyses || []);
+
+      const matchedAnalysis = updatedAnalyses?.find(
+        (a) =>
+          (camp.campaignId && Number(a.campaignId) === Number(camp.campaignId)) ||
+          (a.campaignName &&
+            camp.campaignName &&
+            String(a.campaignName).trim().toLowerCase() === String(camp.campaignName).trim().toLowerCase())
+      );
+
+      setSelectedCampaignModal({
+        campaign: camp,
+        analysis: matchedAnalysis || null,
+      });
+
+      setCampaignNotification({
+        type: 'success',
+        text: `Ad View & Click counted! Automatically synced to database for "${camp.campaignName || 'Campaign'}".`,
+      });
+      setTimeout(() => setCampaignNotification(null), 4500);
+    } catch (err) {
+      console.warn('Error recording campaign click:', err);
+      setSelectedCampaignModal({
+        campaign: camp,
+        analysis: null,
+      });
+    }
+  };
+
+  // Additional click on ad destination in modal
+  const handleModalAdLinkClick = async () => {
+    if (!selectedCampaignModal?.campaign) return;
+    try {
+      await recordExternalCampaignClick({
+        campaignId: selectedCampaignModal.campaign.campaignId,
+        clientId: id,
+        campaignName: selectedCampaignModal.campaign.campaignName,
+      });
+      const latestAnalyses = await getAnalysisByClientId(id);
+      setMarketingAnalyses(latestAnalyses || []);
+      const matched = latestAnalyses?.find(
+        (a) =>
+          (selectedCampaignModal.campaign.campaignId &&
+            Number(a.campaignId) === Number(selectedCampaignModal.campaign.campaignId)) ||
+          (a.campaignName &&
+            selectedCampaignModal.campaign.campaignName &&
+            String(a.campaignName).trim().toLowerCase() ===
+              String(selectedCampaignModal.campaign.campaignName).trim().toLowerCase())
+      );
+      if (matched) {
+        setSelectedCampaignModal((prev) => ({ ...prev, analysis: matched }));
+      }
+      setCampaignNotification({
+        type: 'success',
+        text: `Destination Link Click verified! Telemetry updated in real time.`,
+      });
+      setTimeout(() => setCampaignNotification(null), 3500);
+    } catch (e) {
+      console.warn('Error recording modal link click:', e);
+    }
+  };
 
   const handleEnableOfflineDemo = () => {
     sessionStorage.setItem('addanad_offline_demo', 'true');
@@ -536,38 +655,85 @@ export default function CompanyDetailsPage() {
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    {campaigns.map((camp, idx) => (
-                      <div
-                        key={camp.campaignId || idx}
-                        className="p-4 rounded-xl bg-[#DCEEFA]/40 hover:bg-[#DCEEFA]/70 border border-blue-200 hover:border-[#08D9D6] transition-all space-y-2"
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <h3 className="text-sm font-black text-[#252A34] tracking-tight">
-                            {camp.campaignName || camp.campaignType || 'Active Campaign'}
-                          </h3>
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-100 text-emerald-800 border border-emerald-200">
-                            {camp.status || 'ACTIVE'}
-                          </span>
-                        </div>
+                    {campaigns.map((camp, idx) => {
+                      const matched = marketingAnalyses.find(
+                        (a) =>
+                          (camp.campaignId && Number(a.campaignId) === Number(camp.campaignId)) ||
+                          (a.campaignName &&
+                            camp.campaignName &&
+                            String(a.campaignName).trim().toLowerCase() ===
+                              String(camp.campaignName).trim().toLowerCase())
+                      );
+                      const views = matched ? Number(matched.campaignViews) || 0 : 0;
+                      const clicks = matched ? Number(matched.clicks) || 0 : 0;
 
-                        <div className="space-y-1 text-xs text-gray-600">
-                          <div className="flex items-center gap-1.5 font-medium">
-                            <span className="text-gray-400">Type:</span>
-                            <span className="font-semibold text-gray-800">{camp.campaignType || 'General Campaign'}</span>
-                          </div>
-                          <div className="flex items-center gap-1.5 font-medium">
-                            <span className="text-gray-400">Channels:</span>
-                            <span className="font-semibold text-[#161B26]">{camp.selectedChannels || 'Multi-Platform'}</span>
-                          </div>
-                          {camp.campaignPrices && (
-                            <div className="flex items-center gap-1.5 font-medium">
-                              <span className="text-gray-400">Budget:</span>
-                              <span className="font-black text-[#FF2E63]">Rs. {Number(camp.campaignPrices).toLocaleString()}</span>
+                      return (
+                        <div
+                          key={camp.campaignId || idx}
+                          onClick={() => handleCampaignClick(camp)}
+                          className="group relative p-4.5 rounded-2xl bg-gradient-to-br from-[#DCEEFA]/50 to-white hover:from-[#DCEEFA]/90 hover:to-blue-50/90 border-2 border-blue-200 hover:border-[#08D9D6] transition-all duration-200 cursor-pointer shadow-xs hover:shadow-lg hover:-translate-y-0.5 flex flex-col justify-between space-y-3"
+                        >
+                          <div>
+                            <div className="flex items-start justify-between gap-2 mb-2">
+                              <h3 className="text-sm font-black text-[#252A34] tracking-tight group-hover:text-[#161B26]">
+                                {camp.campaignName || camp.campaignType || 'Active Campaign'}
+                              </h3>
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-100 text-emerald-800 border border-emerald-200 shrink-0">
+                                {camp.status || 'ACTIVE'}
+                              </span>
                             </div>
-                          )}
+
+                            <div className="space-y-1 text-xs text-gray-600 mb-2">
+                              <div className="flex items-center gap-1.5 font-medium">
+                                <span className="text-gray-400">Type:</span>
+                                <span className="font-semibold text-gray-800">{camp.campaignType || 'General Campaign'}</span>
+                              </div>
+                              <div className="flex items-center gap-1.5 font-medium">
+                                <span className="text-gray-400">Channels:</span>
+                                <span className="font-semibold text-[#161B26]">{camp.selectedChannels || 'Multi-Platform'}</span>
+                              </div>
+                              {camp.campaignPrices && (
+                                <div className="flex items-center gap-1.5 font-medium">
+                                  <span className="text-gray-400">Budget:</span>
+                                  <span className="font-black text-[#FF2E63]">Rs. {Number(camp.campaignPrices).toLocaleString()}</span>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Live Engagement Counters */}
+                            <div className="grid grid-cols-2 gap-2 pt-2 border-t border-blue-100">
+                              <div className="px-2 py-1 rounded-xl bg-white border border-blue-100 text-center shadow-2xs">
+                                <div className="text-[9px] text-gray-400 font-bold uppercase flex items-center justify-center gap-1">
+                                  <Eye className="w-3 h-3 text-[#08D9D6]" /> Views
+                                </div>
+                                <div className="text-xs font-black text-[#252A34] mt-0.5">
+                                  {views.toLocaleString()}
+                                </div>
+                              </div>
+                              <div className="px-2 py-1 rounded-xl bg-white border border-blue-100 text-center shadow-2xs">
+                                <div className="text-[9px] text-gray-400 font-bold uppercase flex items-center justify-center gap-1">
+                                  <MousePointerClick className="w-3 h-3 text-[#FF2E63]" /> Clicks
+                                </div>
+                                <div className="text-xs font-black text-[#FF2E63] mt-0.5">
+                                  {clicks.toLocaleString()}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* CTA Trigger */}
+                          <div className="pt-2 flex items-center justify-between text-xs font-bold text-[#252A34] group-hover:text-[#08D9D6]">
+                            <span className="inline-flex items-center gap-1 text-[11px]">
+                              <span>Click Campaign</span>
+                              <Sparkles className="w-3 h-3 text-[#FF2E63]" />
+                            </span>
+                            <span className="p-1 rounded-lg bg-white border border-blue-200 group-hover:border-[#08D9D6] transition-colors">
+                              <ExternalLink className="w-3.5 h-3.5" />
+                            </span>
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -1036,6 +1202,132 @@ export default function CompanyDetailsPage() {
         </div>
 
       </main>
+
+      {/* Floating Campaign Interaction Toast */}
+      {campaignNotification && (
+        <div className="fixed bottom-6 right-6 z-50 max-w-md p-4 rounded-2xl bg-[#161B26] text-white shadow-2xl border border-[#08D9D6]/40 flex items-center gap-3 animate-bounce">
+          <div className="p-2 rounded-xl bg-[#08D9D6]/20 text-[#08D9D6]">
+            <Sparkles className="w-5 h-5" />
+          </div>
+          <div className="flex-1 text-xs">
+            <span className="font-bold block text-white">Live Telemetry Recorded</span>
+            <span className="text-gray-300">{campaignNotification.text}</span>
+          </div>
+          <button
+            onClick={() => setCampaignNotification(null)}
+            className="text-gray-400 hover:text-white p-1"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {/* Campaign Details & Ad Engagement Modal */}
+      {selectedCampaignModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 sm:p-7 shadow-2xl border border-gray-200 relative animate-in fade-in zoom-in-95 duration-200">
+            <button
+              onClick={() => setSelectedCampaignModal(null)}
+              className="absolute top-5 right-5 p-2 rounded-xl text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-2 mb-3">
+              <span className="p-2 rounded-xl bg-[#FF2E63]/10 text-[#FF2E63]">
+                <Megaphone className="w-5 h-5" />
+              </span>
+              <div>
+                <span className="text-[10px] font-black uppercase tracking-wider text-[#08D9D6] block">
+                  Campaign Ad Preview & Engagement
+                </span>
+                <h3 className="text-lg font-black text-[#252A34] leading-tight">
+                  {selectedCampaignModal.campaign?.campaignName || 'Active Ad Campaign'}
+                </h3>
+              </div>
+            </div>
+
+            {/* Telemetry Status Bar */}
+            <div className="p-3.5 rounded-2xl bg-gradient-to-r from-[#08D9D6]/10 to-[#FF2E63]/10 border border-[#08D9D6]/25 mb-4">
+              <div className="flex items-center justify-between text-xs mb-1">
+                <span className="font-bold text-[#252A34] flex items-center gap-1.5">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                  <span>Interaction Recorded</span>
+                </span>
+                <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+                  Live Synced
+                </span>
+              </div>
+              <p className="text-[11px] text-gray-600">
+                Your ad view and click have been recorded in the platform database automatically.
+              </p>
+            </div>
+
+            {/* Real-time stats */}
+            <div className="grid grid-cols-2 gap-3 mb-4">
+              <div className="p-3 rounded-2xl bg-gray-50 border border-gray-200 text-center">
+                <span className="text-[10px] font-bold text-gray-400 uppercase flex items-center justify-center gap-1">
+                  <Eye className="w-3 h-3 text-[#08D9D6]" /> Total Views
+                </span>
+                <span className="text-xl font-black text-[#252A34] mt-0.5 block">
+                  {(Number(selectedCampaignModal.analysis?.campaignViews) || 1).toLocaleString()}
+                </span>
+              </div>
+              <div className="p-3 rounded-2xl bg-[#FF2E63]/5 border border-[#FF2E63]/20 text-center">
+                <span className="text-[10px] font-bold text-[#FF2E63] uppercase flex items-center justify-center gap-1">
+                  <MousePointerClick className="w-3 h-3" /> Total Clicks
+                </span>
+                <span className="text-xl font-black text-[#FF2E63] mt-0.5 block">
+                  {(Number(selectedCampaignModal.analysis?.clicks) || 1).toLocaleString()}
+                </span>
+              </div>
+            </div>
+
+            {/* Campaign info details */}
+            <div className="space-y-2 text-xs text-gray-600 mb-5 p-3 rounded-2xl bg-gray-50 border border-gray-100">
+              <div className="flex justify-between py-1 border-b border-gray-200/60">
+                <span className="text-gray-400">Campaign Type:</span>
+                <span className="font-bold text-[#252A34]">
+                  {selectedCampaignModal.campaign?.campaignType || 'General Campaign'}
+                </span>
+              </div>
+              <div className="flex justify-between py-1 border-b border-gray-200/60">
+                <span className="text-gray-400">Selected Channels:</span>
+                <span className="font-bold text-[#161B26]">
+                  {selectedCampaignModal.campaign?.selectedChannels || 'Multi-Channel'}
+                </span>
+              </div>
+              {selectedCampaignModal.campaign?.campaignPrices && (
+                <div className="flex justify-between py-1">
+                  <span className="text-gray-400">Allocated Budget:</span>
+                  <span className="font-black text-[#FF2E63]">
+                    Rs. {Number(selectedCampaignModal.campaign?.campaignPrices).toLocaleString()}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* Action buttons */}
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={handleModalAdLinkClick}
+                //className="flex-1 py-3 px-4 rounded-2xl font-bold text-xs text-white bg-gradient-to-r from-[#08D9D6] to-[#008280] hover:opacity-95 shadow-md flex items-center justify-center gap-2 cursor-pointer transition-transform hover:scale-102"
+              >
+                {/* <span>Visit Ad Placement</span>
+                <ExternalLink className="w-4 h-4" /> */}
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedCampaignModal(null)}
+                className="py-3 px-5 rounded-2xl font-bold text-xs text-gray-700 bg-gray-100 hover:bg-gray-200 cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Footer matching wireframe */}
       <PublicFooter />

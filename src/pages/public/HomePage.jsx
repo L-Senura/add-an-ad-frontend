@@ -28,6 +28,7 @@ import PublicNavbar from './PublicNavbar';
 import PublicFooter from './PublicFooter';
 import BackendErrorState from './BackendErrorState';
 import { getRealCompanies } from '../../services/companyService';
+import { recordExternalCampaignClick } from '../marketing/marketingApi';
 
 const FAQ_ITEMS = [
   {
@@ -70,6 +71,16 @@ const FAQ_ITEMS = [
 
 export default function HomePage() {
   const navigate = useNavigate();
+
+  const handlePlacementClick = (e, clientID, camp) => {
+    e.stopPropagation();
+    recordExternalCampaignClick({
+      campaignId: camp.campaignId,
+      clientId: clientID,
+      campaignName: camp.campaignName,
+    }).catch(() => {});
+    navigate(`/company/${clientID}?campaignId=${camp.campaignId || ''}`);
+  };
   const [companies, setCompanies] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -410,13 +421,18 @@ export default function HomePage() {
                               Active Placements:
                             </span>
                             {company.campaigns.slice(0, 3).map((camp, idx) => (
-                              <span
+                              <button
                                 key={idx}
-                                className="text-[11px] font-bold text-[#161B26] bg-white px-2.5 py-0.5 rounded-md border border-blue-200 shadow-2xs"
+                                type="button"
+                                onClick={(e) => handlePlacementClick(e, company.clientID, camp)}
+                                title={`Click to view ${camp.campaignName || camp.campaignType} campaign details`}
+                                className="text-[11px] font-bold text-[#161B26] bg-white hover:bg-emerald-50 hover:text-emerald-900 px-2.5 py-0.5 rounded-md border border-blue-200 hover:border-emerald-300 shadow-2xs transition-all cursor-pointer flex items-center gap-1 group/btn"
                               >
-                                {camp.campaignName || camp.campaignType}{' '}
-                                <span className="text-gray-500 font-normal">({camp.selectedChannels || 'Digital'})</span>
-                              </span>
+                                <span>{camp.campaignName || camp.campaignType}</span>
+                                <span className="text-gray-400 group-hover/btn:text-emerald-700 font-normal">
+                                  ({camp.selectedChannels || 'Digital'})
+                                </span>
+                              </button>
                             ))}
                             {company.campaigns.length > 3 && (
                               <span className="text-[11px] font-bold text-gray-600 bg-white/60 px-2 py-0.5 rounded-md">

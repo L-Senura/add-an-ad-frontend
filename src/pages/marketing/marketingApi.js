@@ -68,6 +68,9 @@ function getStoredAnalyses() {
 function saveStoredAnalyses(list) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('marketing_telemetry_updated', { detail: list }));
+    }
   } catch (e) {
     console.warn('Failed to save analyses to localStorage:', e);
   }
@@ -151,16 +154,21 @@ export async function createAnalysis(analysisData) {
   };
 
   try {
-    return await request('/api/marketing/analysis/create', {
+    const res = await request('/api/marketing/analysis/create', {
       method: 'POST',
       body: JSON.stringify(payload),
     });
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('marketing_telemetry_updated', { detail: res }));
+    }
+    return res;
   } catch {
     const newRecord = {
       analysisId: Date.now(),
       ...payload,
       createdAt: new Date().toISOString(),
     };
+    demoAnalyses = getStoredAnalyses();
     demoAnalyses.unshift(newRecord);
     saveStoredAnalyses(demoAnalyses);
     return newRecord;
@@ -176,6 +184,7 @@ export async function getAnalysisByClientId(clientId) {
     const data = await request(`/api/marketing/analysis/client/${clientId}`);
     return Array.isArray(data) ? data : [];
   } catch {
+    demoAnalyses = getStoredAnalyses();
     return demoAnalyses.filter((a) => Number(a.clientId) === Number(clientId));
   }
 }
@@ -189,6 +198,7 @@ export async function getAnalysisByCampaignId(campaignId) {
     const data = await request(`/api/marketing/analysis/campaign/${campaignId}`);
     return Array.isArray(data) ? data : [];
   } catch {
+    demoAnalyses = getStoredAnalyses();
     return demoAnalyses.filter((a) => Number(a.campaignId) === Number(campaignId));
   }
 }
@@ -201,6 +211,7 @@ export async function getAnalysisById(analysisId) {
   try {
     return await request(`/api/marketing/analysis/${analysisId}`);
   } catch {
+    demoAnalyses = getStoredAnalyses();
     const found = demoAnalyses.find((a) => Number(a.analysisId) === Number(analysisId));
     if (!found) throw new Error(`Campaign analysis #${analysisId} not found.`);
     return found;
@@ -216,6 +227,7 @@ export async function getAllAnalyses() {
     const data = await request('/api/marketing/analysis/all');
     return Array.isArray(data) ? data : [];
   } catch {
+    demoAnalyses = getStoredAnalyses();
     return [...demoAnalyses];
   }
 }
@@ -233,11 +245,16 @@ export async function updateAnalysis(analysisId, updatedData) {
   };
 
   try {
-    return await request(`/api/marketing/analysis/${analysisId}`, {
+    const res = await request(`/api/marketing/analysis/${analysisId}`, {
       method: 'PUT',
       body: JSON.stringify(payload),
     });
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('marketing_telemetry_updated', { detail: res }));
+    }
+    return res;
   } catch {
+    demoAnalyses = getStoredAnalyses();
     const index = demoAnalyses.findIndex((a) => Number(a.analysisId) === Number(analysisId));
     if (index === -1) throw new Error(`Analysis #${analysisId} not found`);
 
@@ -252,20 +269,25 @@ export async function updateAnalysis(analysisId, updatedData) {
 }
 
 /**
- * 7. Programmatic View Callback Telemetry:
- * Used by ad server webhooks / impression tracking pixels to report authentic impressions.
+ * 7. Increment campaign views count by 1 (or custom amount).
+ * Used automatically when an external user visits/views a campaign.
  * PUT /api/marketing/analysis/{analysisId}/increment-views?count={count}
  */
 export async function incrementViews(analysisId, count = 1) {
   const c = Number(count != null ? count : 1);
   try {
-    return await request(
+    const res = await request(
       `/api/marketing/analysis/${analysisId}/increment-views?count=${c}`,
       {
         method: 'PUT',
       }
     );
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('marketing_telemetry_updated', { detail: res }));
+    }
+    return res;
   } catch {
+    demoAnalyses = getStoredAnalyses();
     const index = demoAnalyses.findIndex((a) => Number(a.analysisId) === Number(analysisId));
     if (index === -1) throw new Error(`Analysis #${analysisId} not found`);
 
@@ -282,17 +304,247 @@ export async function incrementViews(analysisId, count = 1) {
 }
 
 /**
- * 8. Delete an analysis record.
+ * 8. Increment campaign clicks count by 1 (or custom amount).
+ * Automatically triggered when an external user clicks on a campaign.
+ * PUT /api/marketing/analysis/{analysisId}/increment-clicks?count={count}
+ */
+export async function incrementClicks(analysisId, count = 1) {
+  const c = Number(count != null ? count : 1);
+  try {
+    const res = await request(
+      `/api/marketing/analysis/${analysisId}/increment-clicks?count=${c}`,
+      {
+        method: 'PUT',
+      }
+    );
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('marketing_telemetry_updated', { detail: res }));
+    }
+    return res;
+  } catch {
+    demoAnalyses = getStoredAnalyses();
+    const index = demoAnalyses.findIndex((a) => Number(a.analysisId) === Number(analysisId));
+    if (index === -1) throw new Error(`Analysis #${analysisId} not found`);
+
+    const currentClicks = Number(demoAnalyses[index].clicks) || 0;
+    demoAnalyses[index].clicks = currentClicks + c;
+    saveStoredAnalyses(demoAnalyses);
+
+    return {
+      analysisId: demoAnalyses[index].analysisId,
+      campaignName: demoAnalyses[index].campaignName,
+      updatedClicks: demoAnalyses[index].clicks,
+    };
+  }
+}
+
+/**
+ * 9. Increment campaign views by campaignId.
+ * Automatically triggered when external user views a campaign in marketplace.
+ * PUT /api/marketing/analysis/campaign/{campaignId}/increment-views?count={count}
+ */
+export async function incrementCampaignViews(campaignId, count = 1) {
+  const c = Number(count != null ? count : 1);
+  try {
+    const res = await request(
+      `/api/marketing/analysis/campaign/${campaignId}/increment-views?count=${c}`,
+      {
+        method: 'PUT',
+      }
+    );
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('marketing_telemetry_updated', { detail: res }));
+    }
+    return res;
+  } catch {
+    demoAnalyses = getStoredAnalyses();
+    let updated = false;
+    demoAnalyses.forEach((a) => {
+      if (Number(a.campaignId) === Number(campaignId)) {
+        a.campaignViews = (Number(a.campaignViews) || 0) + c;
+        updated = true;
+      }
+    });
+    if (updated) {
+      saveStoredAnalyses(demoAnalyses);
+    }
+    return { campaignId, updated };
+  }
+}
+
+/**
+ * 10. Increment campaign clicks by campaignId.
+ * Automatically triggered when external user clicks on a campaign.
+ * PUT /api/marketing/analysis/campaign/{campaignId}/increment-clicks?count={count}
+ */
+export async function incrementCampaignClicks(campaignId, count = 1) {
+  const c = Number(count != null ? count : 1);
+  try {
+    const res = await request(
+      `/api/marketing/analysis/campaign/${campaignId}/increment-clicks?count=${c}`,
+      {
+        method: 'PUT',
+      }
+    );
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('marketing_telemetry_updated', { detail: res }));
+    }
+    return res;
+  } catch {
+    demoAnalyses = getStoredAnalyses();
+    let updated = false;
+    demoAnalyses.forEach((a) => {
+      if (Number(a.campaignId) === Number(campaignId)) {
+        a.clicks = (Number(a.clicks) || 0) + c;
+        updated = true;
+      }
+    });
+    if (updated) {
+      saveStoredAnalyses(demoAnalyses);
+    }
+    return { campaignId, updated };
+  }
+}
+
+/**
+ * 11. Unified automatic interaction tracker for external users:
+ * Automatically increments view count and click count in backend database and local storage.
+ */
+export async function recordExternalCampaignClick({ campaignId, analysisId, clientId, campaignName }) {
+  // If we have analysisId, increment clicks and views
+  if (analysisId) {
+    try {
+      await incrementClicks(analysisId, 1);
+      await incrementViews(analysisId, 1);
+      return;
+    } catch {}
+  }
+
+  // If we have campaignId, call backend endpoints
+  if (campaignId) {
+    let backendSuccess = false;
+    try {
+      await request(`/api/marketing/analysis/campaign/${campaignId}/click`, { method: 'PUT' });
+      backendSuccess = true;
+    } catch {
+      try {
+        await Promise.all([
+          request(`/api/marketing/analysis/campaign/${campaignId}/increment-clicks`, { method: 'PUT' }),
+          request(`/api/marketing/analysis/campaign/${campaignId}/increment-views`, { method: 'PUT' }),
+        ]);
+        backendSuccess = true;
+      } catch {}
+    }
+
+    if (backendSuccess) {
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('marketing_telemetry_updated', { detail: { campaignId } }));
+      }
+      return;
+    }
+  }
+
+  // Offline / fallback storage update
+  demoAnalyses = getStoredAnalyses();
+  let matched = false;
+
+  demoAnalyses.forEach((item) => {
+    const matchesId = campaignId && Number(item.campaignId) === Number(campaignId);
+    const matchesClient =
+      clientId &&
+      Number(item.clientId) === Number(clientId) &&
+      (!campaignName || String(item.campaignName).trim().toLowerCase() === String(campaignName).trim().toLowerCase());
+
+    if (matchesId || matchesClient) {
+      item.campaignViews = (Number(item.campaignViews) || 0) + 1;
+      item.clicks = (Number(item.clicks) || 0) + 1;
+      matched = true;
+    }
+  });
+
+  if (!matched && (clientId || campaignId)) {
+    // If no analysis record existed yet for this campaign, automatically create one so telemetry is never lost!
+    const newRecord = {
+      analysisId: Date.now(),
+      clientId: Number(clientId || 1),
+      campaignId: campaignId ? Number(campaignId) : null,
+      campaignName: campaignName || 'Marketplace Campaign Placement',
+      campaignViews: 1,
+      clicks: 1,
+      visibleStartDate: new Date().toISOString().split('T')[0],
+      visibleEndDate: new Date(Date.now() + 1000 * 60 * 60 * 24 * 30).toISOString().split('T')[0],
+      campaignProgress: 'Active In Flight',
+      remarks: 'Automated telemetry initialized from authentic external user ad interaction.',
+      createdAt: new Date().toISOString(),
+    };
+    demoAnalyses.unshift(newRecord);
+    matched = true;
+  }
+
+  if (matched) {
+    saveStoredAnalyses(demoAnalyses);
+  }
+}
+
+/**
+ * 12. Automated View Tracker when external user views/browses a campaign in marketplace.
+ */
+export async function recordExternalCampaignView({ campaignId, analysisId, clientId, campaignName }) {
+  if (analysisId) {
+    try {
+      return await incrementViews(analysisId, 1);
+    } catch {}
+  }
+
+  if (campaignId) {
+    try {
+      await request(`/api/marketing/analysis/campaign/${campaignId}/increment-views`, { method: 'PUT' });
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('marketing_telemetry_updated', { detail: { campaignId } }));
+      }
+      return;
+    } catch {}
+  }
+
+  demoAnalyses = getStoredAnalyses();
+  let matched = false;
+
+  demoAnalyses.forEach((item) => {
+    const matchesId = campaignId && Number(item.campaignId) === Number(campaignId);
+    const matchesClient =
+      clientId &&
+      Number(item.clientId) === Number(clientId) &&
+      (!campaignName || String(item.campaignName).trim().toLowerCase() === String(campaignName).trim().toLowerCase());
+
+    if (matchesId || matchesClient) {
+      item.campaignViews = (Number(item.campaignViews) || 0) + 1;
+      matched = true;
+    }
+  });
+
+  if (matched) {
+    saveStoredAnalyses(demoAnalyses);
+  }
+}
+
+/**
+ * 13. Delete an analysis record.
  * DELETE /api/marketing/analysis/{analysisId}
  */
 export async function deleteAnalysis(analysisId) {
   try {
-    return await request(`/api/marketing/analysis/${analysisId}`, {
+    const res = await request(`/api/marketing/analysis/${analysisId}`, {
       method: 'DELETE',
     });
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('marketing_telemetry_updated', { detail: { analysisId } }));
+    }
+    return res;
   } catch {
+    demoAnalyses = getStoredAnalyses();
     demoAnalyses = demoAnalyses.filter((a) => Number(a.analysisId) !== Number(analysisId));
     saveStoredAnalyses(demoAnalyses);
     return `Campaign analysis with ID ${analysisId} deleted successfully.`;
   }
 }
+

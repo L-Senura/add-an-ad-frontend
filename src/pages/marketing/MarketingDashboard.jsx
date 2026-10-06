@@ -144,6 +144,15 @@ export default function MarketingDashboard({ onBackToDashboard }) {
 
   useEffect(() => {
     loadData();
+    const handleTelemetryUpdated = () => {
+      loadData();
+    };
+    window.addEventListener('marketing_telemetry_updated', handleTelemetryUpdated);
+    window.addEventListener('storage', handleTelemetryUpdated);
+    return () => {
+      window.removeEventListener('marketing_telemetry_updated', handleTelemetryUpdated);
+      window.removeEventListener('storage', handleTelemetryUpdated);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -367,16 +376,16 @@ export default function MarketingDashboard({ onBackToDashboard }) {
       {/* Header */}
       <header className="max-w-6xl mx-auto w-full flex flex-col sm:flex-row items-center justify-between gap-4 mb-8">
         <div className="flex items-center space-x-3">
-          <img
+          {/* <img
             src={logoImg}
             alt="Add-an-Ad Logo"
             className="h-10 w-auto object-contain select-none"
-          />
+          /> */}
           <div>
             <div className="flex items-center gap-2">
-              <span className="text-xl font-bold tracking-tight text-[#252A34]">
+              {/* <span className="text-xl font-bold tracking-tight text-[#252A34]">
                 Add-an-Ad
-              </span>
+              </span> */}
               <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wider text-white bg-[#FF2E63]">
                 Marketing & Analytics Desk
               </span>
@@ -755,28 +764,15 @@ export default function MarketingDashboard({ onBackToDashboard }) {
                           </div>
                         </div>
 
-                        {/* Progress Meter */}
-                        <div className="mb-4">
-                          <div className="flex justify-between items-center text-xs mb-1.5">
-                            <span className="font-bold text-gray-600 flex items-center gap-1">
-                              <Activity className="w-3.5 h-3.5 text-[#08D9D6]" />
-                              Progress:
-                            </span>
-                            <span className="font-extrabold text-xs text-[#252A34]">
-                              {item.campaignProgress || `${percent}% Completed`}
-                            </span>
-                          </div>
-                          <div className="w-full h-2.5 bg-gray-100 rounded-full overflow-hidden p-0.5 border border-gray-200">
-                            <div
-                              className="h-full rounded-full transition-all duration-500"
-                              style={{
-                                width: `${percent}%`,
-                                background: isConcluded
-                                  ? '#252A34'
-                                  : 'linear-gradient(90deg, #08D9D6 0%, #FF2E63 100%)',
-                              }}
-                            />
-                          </div>
+                        {/* Campaign Progress Status (Progress bar removed) */}
+                        <div className="mb-4 flex items-center justify-between py-1.5 px-3 rounded-xl bg-gray-50 border border-gray-100">
+                          <span className="font-bold text-xs text-gray-600 flex items-center gap-1.5">
+                            <Activity className="w-3.5 h-3.5 text-[#08D9D6]" />
+                            Progress Status:
+                          </span>
+                          <span className="font-extrabold text-xs text-[#252A34]">
+                            {item.campaignProgress || 'Active In Flight'}
+                          </span>
                         </div>
 
                         {/* Analyst Remarks */}
@@ -964,36 +960,23 @@ export default function MarketingDashboard({ onBackToDashboard }) {
                 </div>
               </div>
 
-              {/* 5. Initial Views & Clicks */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block font-bold text-[#252A34] mb-1.5">
-                    Initial Audience Views
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={createForm.campaignViews}
-                    onChange={(e) =>
-                      setCreateForm((prev) => ({ ...prev, campaignViews: e.target.value }))
-                    }
-                    className="w-full p-3 rounded-2xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#08D9D6] text-[#252A34]"
-                  />
-                </div>
-
-                <div>
-                  <label className="block font-bold text-[#252A34] mb-1.5">
-                    Initial Clicks
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={createForm.clicks}
-                    onChange={(e) =>
-                      setCreateForm((prev) => ({ ...prev, clicks: e.target.value }))
-                    }
-                    className="w-full p-3 rounded-2xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#08D9D6] text-[#252A34]"
-                  />
+              {/* 5. Automated Audience Views & Clicks Tracking */}
+              <div className="p-4 rounded-2xl bg-gradient-to-r from-[#08D9D6]/10 to-[#FF2E63]/10 border border-[#08D9D6]/20">
+                <div className="flex items-start gap-3">
+                  <div className="p-2.5 rounded-xl bg-white shadow-2xs text-[#08D9D6]">
+                    <TrendingUp className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-extrabold text-[#252A34] flex items-center gap-2">
+                      <span>Automated Real-Time Telemetry</span>
+                      <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
+                        Auto Tracked
+                      </span>
+                    </h4>
+                    <p className="text-xs text-gray-600 mt-1 leading-relaxed">
+                      Audience views and click counts start at <strong>0</strong> and update automatically in real-time when external visitors view and click on this campaign in the public marketplace. Manual entry is disabled to ensure audit integrity.
+                    </p>
+                  </div>
                 </div>
               </div>
 
@@ -1176,29 +1159,25 @@ export default function MarketingDashboard({ onBackToDashboard }) {
               </div>
 
               <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-bold text-[#252A34] mb-1">Audience Views</label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={editFormData.campaignViews}
-                    onChange={(e) =>
-                      setEditFormData({ ...editFormData, campaignViews: e.target.value })
-                    }
-                    className="w-full p-2.5 rounded-xl border border-gray-300 focus:outline-none focus:ring-1 focus:ring-[#08D9D6] text-[#252A34]"
-                  />
+                <div className="p-3 rounded-xl bg-gray-50 border border-gray-200">
+                  <div className="flex items-center justify-between text-xs text-gray-500 font-bold mb-1">
+                    <span>Audience Views</span>
+                    <span className="text-[9px] uppercase px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 font-extrabold">Auto-Tracked</span>
+                  </div>
+                  <div className="text-xl font-black text-[#252A34]">
+                    {(Number(editFormData.campaignViews) || 0).toLocaleString()}
+                  </div>
+                  <span className="text-[10px] text-gray-400 block mt-0.5">Incremented automatically when visitors view campaign</span>
                 </div>
-                <div>
-                  <label className="block font-bold text-[#252A34] mb-1">Clicks</label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={editFormData.clicks}
-                    onChange={(e) =>
-                      setEditFormData({ ...editFormData, clicks: e.target.value })
-                    }
-                    className="w-full p-2.5 rounded-xl border border-gray-300 focus:outline-none focus:ring-1 focus:ring-[#08D9D6] text-[#252A34]"
-                  />
+                <div className="p-3 rounded-xl bg-[#FF2E63]/5 border border-[#FF2E63]/20">
+                  <div className="flex items-center justify-between text-xs text-gray-500 font-bold mb-1">
+                    <span>Clicks</span>
+                    <span className="text-[9px] uppercase px-1.5 py-0.5 rounded bg-[#FF2E63]/20 text-[#FF2E63] font-extrabold">Auto-Tracked</span>
+                  </div>
+                  <div className="text-xl font-black text-[#FF2E63]">
+                    {(Number(editFormData.clicks) || 0).toLocaleString()}
+                  </div>
+                  <span className="text-[10px] text-gray-400 block mt-0.5">Incremented automatically when visitors click campaign</span>
                 </div>
               </div>
 
