@@ -125,9 +125,17 @@ export async function getClientByEmail(email) {
 
 /**
  * Update client profile
+ * Matches Spring Boot ClientController: @PutMapping("/api/client/{clientId}")
+ * Accepts ClientDB entity data: { firstName, lastName, contactNumber, companyName, companyDetails, password? }
+ * @param {number|string} clientId - The numeric client ID
+ * @param {Object} updatedData - Fields to update
  */
 export async function updateClientProfile(clientId, updatedData) {
-  return request(`/api/client/${clientId}`, {
+  const numericId = Number(clientId);
+  if (!clientId || isNaN(numericId)) {
+    throw new Error(`Valid numeric client ID is required to update profile. Received: ${clientId}`);
+  }
+  return request(`/api/client/${numericId}`, {
     method: 'PUT',
     body: JSON.stringify(updatedData),
   });
@@ -229,12 +237,44 @@ export async function acceptClient(clientId) {
 }
 
 /**
- * Admin rejects a client
+ * Admin rejects and deletes a client account permanently.
+ * Issues DELETE to Spring Boot /api/client/{clientId}
  */
 export async function rejectClient(clientId) {
-  return request(`/api/admin/clients/${clientId}/reject`, {
-    method: 'PUT',
-  });
+  const numericId = Number(clientId);
+  if (!clientId || isNaN(numericId)) {
+    throw new Error(`Valid numeric client ID is required to reject/delete client. Received: ${clientId}`);
+  }
+
+  try {
+    return await request(`/api/client/${numericId}`, {
+      method: 'DELETE',
+    });
+  } catch (err) {
+    if (err.isNetworkError) throw err;
+    // Fallback attempt to admin endpoints if backend routes via /api/admin/clients
+    try {
+      return await request(`/api/admin/clients/${numericId}`, {
+        method: 'DELETE',
+      });
+    } catch {
+      try {
+        return await request(`/api/admin/clients/${numericId}/reject`, {
+          method: 'PUT',
+        });
+      } catch {
+        throw err;
+      }
+    }
+  }
+}
+
+/**
+ * Delete a client permanently by clientID
+ * Matches backend: @DeleteMapping("/api/client/{clientId}")
+ */
+export async function deleteClient(clientId) {
+  return rejectClient(clientId);
 }
 
 /**
@@ -265,6 +305,19 @@ const STORAGE_KEY = 'addanad_auth_session';
 
 export function saveAuthSession(user) {
   try {
+    if (user && typeof user === 'object') {
+      const resolvedId =
+        user.clientID ??
+        user.clientId ??
+        user.userId ??
+        user.id;
+      if (resolvedId !== undefined && resolvedId !== null) {
+        user.clientID = resolvedId;
+        user.clientId = resolvedId;
+        user.userId = resolvedId;
+        user.id = resolvedId;
+      }
+    }
     localStorage.setItem(STORAGE_KEY, JSON.stringify(user));
   } catch (e) {
     console.error('Could not persist session', e);
@@ -274,7 +327,22 @@ export function saveAuthSession(user) {
 export function getStoredAuthSession() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : null;
+    if (!raw) return null;
+    const session = JSON.parse(raw);
+    if (session && typeof session === 'object') {
+      const resolvedId =
+        session.clientID ??
+        session.clientId ??
+        session.userId ??
+        session.id;
+      if (resolvedId !== undefined && resolvedId !== null) {
+        session.clientID = resolvedId;
+        session.clientId = resolvedId;
+        session.userId = resolvedId;
+        session.id = resolvedId;
+      }
+    }
+    return session;
   } catch {
     return null;
   }

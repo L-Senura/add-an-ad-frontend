@@ -52,7 +52,19 @@ export default function ClientLogin({
     setIsLoading(true);
     try {
       const response = await loginClient(credentials);
-      const sessionData = { ...response, role: response.role || 'CLIENT' };
+      const resolvedId =
+        response.clientID ??
+        response.clientId ??
+        response.userId ??
+        response.id;
+      const sessionData = {
+        ...response,
+        clientID: resolvedId,
+        clientId: resolvedId,
+        userId: resolvedId,
+        id: resolvedId,
+        role: response.role || 'CLIENT',
+      };
       saveAuthSession(sessionData);
       setLoggedInUser(sessionData);
       if (onLoginSuccess) {

@@ -101,8 +101,10 @@ export default function ClientHome({ onPostAdvertisement, onLogout }) {
   });
   const [showPassword, setShowPassword] = useState(false);
   const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [profileError, setProfileError] = useState(null);
 
   const initEditForm = (data) => {
+    if (!data) return;
     setEditForm({
       firstName: data.firstName || '',
       lastName: data.lastName || '',
@@ -112,6 +114,15 @@ export default function ClientHome({ onPostAdvertisement, onLogout }) {
       companyDetails: data.companyDetails || '',
       password: '',
     });
+  };
+
+  const handleOpenEditProfile = () => {
+    if (client) {
+      initEditForm(client);
+    }
+    setProfileError(null);
+    setShowPassword(false);
+    setActiveModal('edit_profile');
   };
 
   // Close active modal on Escape key press and manage body scroll locking
@@ -169,9 +180,15 @@ export default function ClientHome({ onPostAdvertisement, onLogout }) {
 
       try {
         let profile = null;
-        if (session.userId) {
+        const sessionId =
+          session.clientID ??
+          session.clientId ??
+          session.userId ??
+          session.id;
+
+        if (sessionId) {
           try {
-            profile = await getClientById(session.userId);
+            profile = await getClientById(sessionId);
           } catch {
             profile = null;
           }
@@ -184,21 +201,32 @@ export default function ClientHome({ onPostAdvertisement, onLogout }) {
           }
         }
 
-        const resolved = profile || {
-          clientID: session.userId || 1,
-          firstName: session.firstName || 'Client',
-          lastName: session.lastName || '',
-          companyName: session.companyName || session.firstName + "'s Agency",
-          email: session.email || 'client@agency.com',
-          contactNumber: session.contactNumber || '+1 (555) 012-3456',
-          companyDetails: session.companyDetails || 'Web Advertising Agency partner.',
-          status: session.status || 'ACCEPTED',
+        const resolvedId =
+          profile?.clientID ??
+          profile?.clientId ??
+          profile?.id ??
+          sessionId ??
+          1;
+
+        const resolved = {
+          ...(profile || {}),
+          clientID: resolvedId,
+          clientId: resolvedId,
+          id: resolvedId,
+          userId: resolvedId,
+          firstName: profile?.firstName || session.firstName || 'Client',
+          lastName: profile?.lastName || session.lastName || '',
+          companyName: profile?.companyName || session.companyName || (session.firstName ? `${session.firstName}'s Agency` : 'Nova Marketing Agency'),
+          email: profile?.email || session.email || 'client@agency.com',
+          contactNumber: profile?.contactNumber || session.contactNumber || '',
+          companyDetails: profile?.companyDetails || session.companyDetails || '',
+          status: profile?.status || session.status || 'ACCEPTED',
         };
 
         setClient(resolved);
         initEditForm(resolved);
 
-        const clientId = resolved.clientID;
+        const clientId = resolvedId;
 
         // Fetch live campaigns and telemetry summaries in parallel
         await Promise.allSettled([
@@ -305,41 +333,122 @@ export default function ClientHome({ onPostAdvertisement, onLogout }) {
   const handleEditChange = (e) => {
     const { name, value } = e.target;
     setEditForm((prev) => ({ ...prev, [name]: value }));
+    if (profileError) setProfileError(null);
   };
 
   const handleSaveProfile = async (e) => {
     e.preventDefault();
+    setProfileError(null);
+
+    // Validation matching backend requirements
+    if (!editForm.firstName?.trim()) {
+      setProfileError('First name is required.');
+      return;
+    }
+    if (!editForm.lastName?.trim()) {
+      setProfileError('Last name is required.');
+      return;
+    }
+    if (!editForm.companyName?.trim()) {
+      setProfileError('Company / Agency name is required.');
+      return;
+    }
+    if (editForm.password && editForm.password.trim().length > 0 && editForm.password.trim().length < 6) {
+      setProfileError('New password must be at least 6 characters long.');
+      return;
+    }
+
     setIsSavingProfile(true);
-    setAlertMessage(null);
 
     try {
-      const clientId = client?.clientID || 1;
-      const updated = await updateClientProfile(clientId, {
-        firstName: editForm.firstName,
-        lastName: editForm.lastName,
-        companyName: editForm.companyName,
-        contactNumber: editForm.contactNumber,
-        companyDetails: editForm.companyDetails,
-        ...(editForm.password ? { password: editForm.password } : {}),
+      // 1. Accurately resolve client ID from state, session, or email lookup
+      const currentSession = getStoredAuthSession() || {};
+      let clientId =
+        client?.clientID ??
+        client?.clientId ??
+        client?.id ??
+        client?.userId ??
+        currentSession?.clientID ??
+        currentSession?.clientId ??
+        currentSession?.userId ??
+        currentSession?.id;
+
+      // If clientId is still not determined, query backend by email
+      const clientEmail = client?.email || editForm.email || currentSession?.email;
+      if (!clientId && clientEmail) {
+        try {
+          const profileByEmail = await getClientByEmail(clientEmail);
+          if (profileByEmail) {
+            clientId =
+              profileByEmail.clientID ??
+              profileByEmail.clientId ??
+              profileByEmail.id;
+          }
+        } catch (lookupErr) {
+          console.warn('Could not resolve client ID by email lookup:', lookupErr);
+        }
+      }
+
+      if (!clientId) {
+        throw new Error('Unable to identify client account ID. Please sign in again.');
+      }
+
+      // 2. Prepare payload matching Spring Boot ClientDB entity and ClientController.updateClient()
+      const payload = {
+        firstName: editForm.firstName.trim(),
+        lastName: editForm.lastName.trim(),
+        companyName: editForm.companyName.trim(),
+        contactNumber: editForm.contactNumber?.trim() || '',
+        companyDetails: editForm.companyDetails?.trim() || '',
+      };
+
+      if (editForm.password && editForm.password.trim()) {
+        payload.password = editForm.password.trim();
+      }
+
+      // 3. Call backend PUT /api/client/{clientId}
+      const updated = await updateClientProfile(clientId, payload);
+
+      // 4. Update local client state and persisted session
+      const resolvedId =
+        updated?.clientID ??
+        updated?.clientId ??
+        updated?.id ??
+        clientId;
+
+      const merged = {
+        ...client,
+        ...updated,
+        clientID: resolvedId,
+        clientId: resolvedId,
+        id: resolvedId,
+        userId: resolvedId,
+      };
+
+      setClient(merged);
+      initEditForm(merged);
+
+      saveAuthSession({
+        ...currentSession,
+        ...merged,
+        clientID: resolvedId,
+        clientId: resolvedId,
+        id: resolvedId,
+        userId: resolvedId,
       });
 
-      const merged = { ...client, ...updated };
-      setClient(merged);
-      saveAuthSession({ ...getStoredAuthSession(), ...merged });
       setActiveModal(null);
       setAlertMessage({
         type: 'success',
         text: 'Your agency profile credentials have been successfully updated!',
       });
-    } catch {
-      const fallbackUpdated = { ...client, ...editForm };
-      setClient(fallbackUpdated);
-      saveAuthSession({ ...getStoredAuthSession(), ...fallbackUpdated });
-      setActiveModal(null);
-      setAlertMessage({
-        type: 'success',
-        text: 'Agency profile details updated successfully.',
-      });
+    } catch (err) {
+      console.error('Failed to update client profile:', err);
+      const message =
+        err.data?.message ||
+        err.message ||
+        'Failed to update profile. Please verify your connection to the server.';
+      setProfileError(message);
     } finally {
       setIsSavingProfile(false);
     }
@@ -656,7 +765,7 @@ export default function ClientHome({ onPostAdvertisement, onLogout }) {
               <div className="mt-1.5 flex items-center gap-3">
                 <button
                   type="button"
-                  onClick={() => setActiveModal('edit_profile')}
+                  onClick={handleOpenEditProfile}
                   className="inline-flex items-center gap-1.5 text-xs font-bold text-gray-600 hover:text-[#FF2E63] transition-colors cursor-pointer group"
                 >
                   <Edit3 className="w-3.5 h-3.5 text-[#08D9D6] group-hover:text-[#FF2E63] transition-colors" />
@@ -1183,7 +1292,7 @@ export default function ClientHome({ onPostAdvertisement, onLogout }) {
                   }}
                 >
                   <Plus className="w-3.5 h-3.5" />
-                  + Post New Campaign
+                  Post New Campaign
                 </button>
                 <button
                   type="button"
@@ -1664,6 +1773,29 @@ export default function ClientHome({ onPostAdvertisement, onLogout }) {
 
             {/* Modal Body: Edit Profile Form */}
             <form onSubmit={handleSaveProfile} className="p-5 sm:p-7 overflow-y-auto space-y-4">
+              {profileError && (
+                <div className="p-3.5 rounded-xl bg-red-50 border border-red-200 text-red-600 text-xs font-semibold flex items-start gap-2.5 animate-fade-in">
+                  <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-red-500" />
+                  <span>{profileError}</span>
+                </div>
+              )}
+
+              {/* Registered Email (Account ID / Read-only) */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs font-bold uppercase tracking-wider text-[#252A34]">
+                    Registered Email
+                  </label>
+                  <span className="text-[10px] font-semibold text-gray-400">Account Identity (Read-only)</span>
+                </div>
+                <input
+                  type="email"
+                  value={editForm.email || client?.email || ''}
+                  disabled
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-gray-200 text-sm bg-gray-100/90 text-gray-500 cursor-not-allowed select-none"
+                />
+              </div>
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold uppercase tracking-wider mb-1.5 text-[#252A34]">

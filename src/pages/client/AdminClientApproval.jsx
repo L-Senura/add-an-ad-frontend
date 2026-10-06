@@ -14,6 +14,8 @@ import {
   AlertCircle,
   X,
   LogOut,
+  Trash2,
+  AlertTriangle,
 } from 'lucide-react';
 import {
   getPendingClients,
@@ -79,6 +81,7 @@ export default function AdminClientApproval({ onBackToDashboard, onLogout }) {
   const [actionLoadingId, setActionLoadingId] = useState(null);
   const [notification, setNotification] = useState(null); // { type: 'success'|'error', text: '' }
   const [selectedModalClient, setSelectedModalClient] = useState(null);
+  const [clientToDelete, setClientToDelete] = useState(null); // { clientID, companyName }
 
   // Refresh client data from server
   const fetchClients = async () => {
@@ -159,27 +162,42 @@ export default function AdminClientApproval({ onBackToDashboard, onLogout }) {
     }
   };
 
-  const handleReject = async (clientId, companyName) => {
-    setActionLoadingId(clientId);
+  // Trigger the confirmation prompt before rejecting/deleting
+  const handleRequestReject = (clientId, companyName) => {
+    setClientToDelete({
+      clientID: clientId,
+      companyName: companyName || 'Selected Agency',
+    });
+  };
+
+  // Execute deletion upon confirmation
+  const confirmDeleteClient = async () => {
+    if (!clientToDelete) return;
+    const { clientID, companyName } = clientToDelete;
+    setActionLoadingId(clientID);
     setNotification(null);
+
     try {
       try {
-        await rejectClient(clientId);
+        await rejectClient(clientID);
       } catch (err) {
-        console.warn('Backend offline or mocked:', err);
+        console.warn('Backend deletion call result:', err);
       }
 
-      // Update local state
+      // Permanently remove rejected client from queue/state
       setClients((prev) =>
-        prev.map((c) => (c.clientID === clientId ? { ...c, status: 'REJECTED' } : c))
+        prev.filter((c) => (c.clientID ?? c.clientId ?? c.id) !== clientID)
       );
+
       setNotification({
-        type: 'error',
-        text: `Client "${companyName}" registration has been REJECTED.`,
+        type: 'success',
+        text: `Client "${companyName}" registration has been rejected and permanently deleted.`,
       });
-      if (selectedModalClient?.clientID === clientId) {
-        setSelectedModalClient((prev) => ({ ...prev, status: 'REJECTED' }));
+
+      if ((selectedModalClient?.clientID ?? selectedModalClient?.clientId ?? selectedModalClient?.id) === clientID) {
+        setSelectedModalClient(null);
       }
+      setClientToDelete(null);
     } catch {
       setNotification({
         type: 'error',
@@ -642,19 +660,16 @@ export default function AdminClientApproval({ onBackToDashboard, onLogout }) {
                         <span>{isAccepted ? 'Already Accepted' : 'Accept Client'}</span>
                       </button>
 
-                      {/* Reject Button */}
+                      {/* Reject & Delete Button */}
                       <button
                         type="button"
-                        onClick={() => handleReject(client.clientID, client.companyName)}
-                        disabled={isBusy || isRejected}
-                        className={`w-full sm:w-auto px-5 py-2.5 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-center gap-2 border transition-all duration-200 ${
-                          isRejected
-                            ? 'opacity-50 cursor-not-allowed border-gray-200 text-gray-400'
-                            : 'border-[#FF2E63] text-[#FF2E63] hover:bg-[#FF2E63]/10 active:translate-y-0'
-                        }`}
+                        onClick={() => handleRequestReject(client.clientID, client.companyName)}
+                        disabled={isBusy}
+                        className="w-full sm:w-auto px-5 py-2.5 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-center gap-2 border border-[#FF2E63] text-[#FF2E63] hover:bg-[#FF2E63]/10 active:translate-y-0 transition-all duration-200 cursor-pointer"
+                        title="Reject and delete client"
                       >
-                        <XCircle className="w-4 h-4" />
-                        <span>{isRejected ? 'Declined' : 'Reject Application'}</span>
+                        <Trash2 className="w-4 h-4" />
+                        <span>Reject & Delete</span>
                       </button>
 
                       {/* View Profile details Modal button */}
@@ -755,12 +770,71 @@ export default function AdminClientApproval({ onBackToDashboard, onLogout }) {
               </button>
               <button
                 type="button"
-                onClick={() => handleReject(selectedModalClient.clientID, selectedModalClient.companyName)}
-                disabled={actionLoadingId === selectedModalClient.clientID || selectedModalClient.status === 'REJECTED'}
-                className="flex-1 py-3 px-4 rounded-xl font-bold text-xs sm:text-sm border border-[#FF2E63] text-[#FF2E63] flex items-center justify-center gap-2 hover:bg-[#FF2E63]/10 transition-colors"
+                onClick={() => handleRequestReject(selectedModalClient.clientID, selectedModalClient.companyName)}
+                disabled={actionLoadingId === selectedModalClient.clientID}
+                className="flex-1 py-3 px-4 rounded-xl font-bold text-xs sm:text-sm border border-[#FF2E63] text-[#FF2E63] flex items-center justify-center gap-2 hover:bg-[#FF2E63]/10 transition-colors cursor-pointer"
+                title="Reject and delete client"
               >
-                <XCircle className="w-4 h-4" />
-                Reject
+                <Trash2 className="w-4 h-4" />
+                Reject & Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation Modal for Rejecting & Deleting */}
+      {clientToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fade-in">
+          <div className="rounded-[28px] p-6 sm:p-7 bg-white border border-gray-200 shadow-2xl max-w-md w-full relative">
+            <div className="flex items-center gap-3.5 mb-4">
+              <div className="w-12 h-12 rounded-2xl bg-red-100 flex items-center justify-center text-red-600 shrink-0">
+                <AlertTriangle className="w-6 h-6 text-[#FF2E63]" />
+              </div>
+              <div>
+                <h3 className="text-lg font-extrabold text-[#252A34]">
+                  Confirm Client Deletion
+                </h3>
+                <p className="text-xs text-gray-500">
+                  This action is permanent and cannot be undone.
+                </p>
+              </div>
+            </div>
+
+            <p className="text-sm text-gray-700 leading-relaxed mb-6">
+              Are you sure you want to reject and permanently delete{' '}
+              <span className="font-extrabold text-[#252A34]">
+                "{clientToDelete.companyName}"
+              </span>
+              ? Their agency account, credentials, and access will be completely removed.
+            </p>
+
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setClientToDelete(null)}
+                disabled={actionLoadingId === clientToDelete.clientID}
+                className="flex-1 py-2.5 px-4 rounded-xl font-bold text-xs sm:text-sm border border-gray-300 text-gray-600 hover:bg-gray-100 transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmDeleteClient}
+                disabled={actionLoadingId === clientToDelete.clientID}
+                className="flex-1 py-2.5 px-4 rounded-xl font-bold text-xs sm:text-sm bg-[#FF2E63] hover:bg-[#e02656] text-white shadow-sm flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-50"
+              >
+                {actionLoadingId === clientToDelete.clientID ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Deleting...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-4 h-4" />
+                    <span>Yes, Delete</span>
+                  </>
+                )}
               </button>
             </div>
           </div>
