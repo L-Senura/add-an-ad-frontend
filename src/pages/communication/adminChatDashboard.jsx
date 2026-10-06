@@ -295,7 +295,7 @@ export default function AdminChatDashboard({ onBackToDashboard }) {
               <span
                 className="text-[11px] font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wider text-white bg-[#FF2E63]"
               >
-                Admin Communication Desk
+                Admin Communication & Review Desk
               </span>
             </div>
             <p className="text-xs font-medium text-gray-500">

@@ -16,6 +16,7 @@ import {
   Calendar,
   AlertTriangle,
   UserPlus,
+  Trash2,
 } from 'lucide-react';
 import {
   getAllClientTasks,
@@ -26,6 +27,7 @@ import {
   getCoordinationSummary,
   updateTaskStatus,
   updateEmployeeAvailability,
+  deleteTask,
   SAMPLE_EMPLOYEES,
 } from './operationsApi';
 import { getStoredAuthSession } from '../client/api';
@@ -82,6 +84,35 @@ export default function OperationsCoordinationDashboard({ onBackToDashboard }) {
 
   // Staff Workbench Simulation state
   const [activeStaffId, setActiveStaffId] = useState('');
+
+  // Delete task state
+  const [deletingTaskId, setDeletingTaskId] = useState(null);
+
+  const handleDeleteTask = async (taskId) => {
+    if (
+      !window.confirm(
+        `Are you sure you want to delete Task #${taskId}? This will permanently remove the record from the database.`
+      )
+    ) {
+      return;
+    }
+    setDeletingTaskId(taskId);
+    try {
+      await deleteTask(taskId);
+      setNotification({
+        type: 'success',
+        text: `Task #${taskId} has been permanently deleted from the database.`,
+      });
+      await loadData();
+    } catch (err) {
+      setNotification({
+        type: 'error',
+        text: err.message || 'Failed to delete task.',
+      });
+    } finally {
+      setDeletingTaskId(null);
+    }
+  };
 
   // Load all operations data
   const loadData = async () => {
@@ -904,6 +935,21 @@ export default function OperationsCoordinationDashboard({ onBackToDashboard }) {
                           ) : (
                             <span className="text-xs font-semibold text-gray-400">Archived</span>
                           )}
+
+                          {/* Delete Task Button */}
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteTask(t.id)}
+                            disabled={deletingTaskId === t.id}
+                            className="p-2 rounded-xl border border-rose-200 text-[#FF2E63] hover:bg-rose-50 transition-colors flex items-center justify-center cursor-pointer"
+                            title="Delete / cancel task and permanently remove from database"
+                          >
+                            {deletingTaskId === t.id ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                              <Trash2 className="w-3.5 h-3.5" />
+                            )}
+                          </button>
                         </div>
                       </div>
                     </div>

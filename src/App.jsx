@@ -57,7 +57,7 @@ const ADMIN_NAV_ITEMS = [
   },
   {
     path: BACKEND_API_ROUTES.ADMIN_CHAT,
-    label: 'Admin Live Chat Desk',
+    label: 'Live Chat & Reviews',
     icon: MessageSquare,
     activeColor: 'bg-[#08D9D6] text-[#252A34] font-bold shadow-xs',
   },

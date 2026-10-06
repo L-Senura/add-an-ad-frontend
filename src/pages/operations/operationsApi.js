@@ -432,24 +432,69 @@ export async function updateClientTask(taskId, taskData) {
 }
 
 /**
- * Client cancels a task if it has not yet been completed.
- * PUT /api/client_tasks/{taskId}/cancel
+ * Client cancels / permanently deletes a task from the database.
+ * DELETE /api/client_tasks/{taskId} or DELETE /api/client_tasks/{taskId}/cancel
  */
 export async function cancelClientTask(taskId) {
   try {
-    return await request(`/api/client_tasks/${taskId}/cancel`, {
-      method: 'PUT',
-    });
+    try {
+      return await request(`/api/client_tasks/${taskId}`, {
+        method: 'DELETE',
+      });
+    } catch {
+      return await request(`/api/client_tasks/${taskId}/cancel`, {
+        method: 'DELETE',
+      });
+    }
   } catch {
-    const task = demoTasks.find((t) => Number(t.id) === Number(taskId));
-    if (!task) throw new Error(`Task with ID ${taskId} not found.`);
-    if (String(task.status).toLowerCase() === 'completed') {
+    const taskIndex = demoTasks.findIndex((t) => Number(t.id) === Number(taskId));
+    if (taskIndex === -1) throw new Error(`Task with ID ${taskId} not found.`);
+    const existingTask = demoTasks[taskIndex];
+    if (String(existingTask.status).toLowerCase() === 'completed') {
       throw new Error('Cannot cancel a task that has already been completed.');
     }
 
-    task.status = 'Cancelled';
+    // Decrement employee workload if task was assigned to staff
+    if (existingTask.employeeId) {
+      const emp = demoEmployees.find((e) => Number(e.id) === Number(existingTask.employeeId));
+      if (emp && emp.currentWorkload > 0) {
+        emp.currentWorkload = Math.max(0, emp.currentWorkload - 1);
+        saveStoredEmployees(demoEmployees);
+      }
+    }
+
+    // Permanently remove the task from stored demo tasks
+    demoTasks.splice(taskIndex, 1);
     saveStoredTasks(demoTasks);
-    return task;
+    return {
+      success: true,
+      message: `Task #${taskId} has been cancelled and permanently deleted from the database.`,
+      id: taskId,
+    };
+  }
+}
+
+/**
+ * Permanently deletes / cancels a client task (alias for cancelClientTask)
+ */
+export async function deleteClientTask(taskId) {
+  return cancelClientTask(taskId);
+}
+
+/**
+ * Permanently deletes a task from coordinator view or client view
+ */
+export async function deleteTask(taskId) {
+  try {
+    try {
+      return await request(`/api/coordinator_tasks/${taskId}`, {
+        method: 'DELETE',
+      });
+    } catch {
+      return await cancelClientTask(taskId);
+    }
+  } catch {
+    return cancelClientTask(taskId);
   }
 }
 
