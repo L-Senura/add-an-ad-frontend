@@ -7,7 +7,6 @@ import {
   Loader2,
   RefreshCw,
   X,
-  Ban,
   Clock,
   Filter,
   User,
@@ -62,7 +61,7 @@ export default function ClientTaskSubmissionSection({ clientId = 1, clientName =
 
   // View Details Modal State
   const [viewingTask, setViewingTask] = useState(null);
-  const [isLoadingDetails, setIsLoadingDetails] = useState(false);
+  const [loadingDetailsTaskId, setLoadingDetailsTaskId] = useState(null);
 
   const fetchTasks = async (status = statusFilter) => {
     setIsLoading(true);
@@ -186,7 +185,7 @@ export default function ClientTaskSubmissionSection({ clientId = 1, clientName =
 
   // View details (GET /api/client_tasks/{taskId})
   const handleOpenDetails = async (taskId) => {
-    setIsLoadingDetails(true);
+    setLoadingDetailsTaskId(taskId);
     try {
       const details = await getTaskDetails(taskId);
       setViewingTask(details);
@@ -196,7 +195,7 @@ export default function ClientTaskSubmissionSection({ clientId = 1, clientName =
         text: err.message || 'Failed to fetch task details.',
       });
     } finally {
-      setIsLoadingDetails(false);
+      setLoadingDetailsTaskId(null);
     }
   };
 
@@ -209,8 +208,8 @@ export default function ClientTaskSubmissionSection({ clientId = 1, clientName =
       });
       return;
     }
-    const status = String(task.status || '').toUpperCase();
-    if (status !== 'PENDING_COORDINATION' && status !== 'UNASSIGNED') {
+    const status = String(task.status || '').toUpperCase().trim();
+    if (['COMPLETED', 'CANCELLED', 'ASSIGNED', 'IN PROGRESS'].includes(status)) {
       setNotification({
         type: 'error',
         text: `Cannot edit Task #${task.id}: Current status is ${task.status}. Edits are only permitted prior to employee allocation.`,
@@ -237,7 +236,7 @@ export default function ClientTaskSubmissionSection({ clientId = 1, clientName =
 
     setIsUpdating(true);
     try {
-      await updateClientTask(editingTask.id, {
+      const updatedFields = {
         clientId: Number(clientId),
         clientName,
         campaignId: editForm.campaignId ? Number(editForm.campaignId) : null,
@@ -246,7 +245,18 @@ export default function ClientTaskSubmissionSection({ clientId = 1, clientName =
         taskCategory: editForm.taskCategory,
         priority: editForm.priority,
         clientDeadline: editForm.clientDeadline || null,
-      });
+      };
+
+      const serverResult = await updateClientTask(editingTask.id, updatedFields);
+
+      // Optimistically update local task state immediately
+      setTasks((prevTasks) =>
+        prevTasks.map((t) =>
+          Number(t.id) === Number(editingTask.id)
+            ? { ...t, ...updatedFields, ...(serverResult || {}) }
+            : t
+        )
+      );
 
       setNotification({
         type: 'success',
@@ -430,13 +440,12 @@ export default function ClientTaskSubmissionSection({ clientId = 1, clientName =
             const isCompleted = String(task.status).toLowerCase() === 'completed';
             const isCancelled = String(task.status).toLowerCase() === 'cancelled';
             const isAssigned = Boolean(task.employeeId);
+            const statusUpper = String(task.status || '').toUpperCase().trim();
             const canEdit =
               !task.employeeId &&
               !isCompleted &&
               !isCancelled &&
-              (!task.status ||
-                String(task.status).toUpperCase() === 'PENDING_COORDINATION' ||
-                String(task.status).toUpperCase() === 'UNASSIGNED');
+              !['ASSIGNED', 'IN PROGRESS', 'COMPLETED', 'CANCELLED'].includes(statusUpper);
 
             return (
               <div
@@ -510,9 +519,14 @@ export default function ClientTaskSubmissionSection({ clientId = 1, clientName =
                   <button
                     type="button"
                     onClick={() => handleOpenDetails(task.id)}
+                    disabled={loadingDetailsTaskId === task.id}
                     className="px-3 py-1.5 rounded-xl text-xs font-semibold border border-gray-300 hover:border-[#08D9D6] text-[#252A34] bg-white hover:bg-gray-50 flex items-center gap-1 cursor-pointer transition-colors"
                   >
-                    <Info className="w-3.5 h-3.5 text-[#08D9D6]" />
+                    {loadingDetailsTaskId === task.id ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-[#08D9D6]" />
+                    ) : (
+                      <Info className="w-3.5 h-3.5 text-[#08D9D6]" />
+                    )}
                     <span>Details</span>
                   </button>
 
@@ -787,7 +801,9 @@ export default function ClientTaskSubmissionSection({ clientId = 1, clientName =
 
             <div className="mt-5 flex items-center gap-2">
               {!viewingTask.employeeId &&
-                String(viewingTask.status || '').toUpperCase() === 'PENDING_COORDINATION' && (
+                !['COMPLETED', 'CANCELLED', 'ASSIGNED', 'IN PROGRESS'].includes(
+                  String(viewingTask.status || '').toUpperCase().trim()
+                ) && (
                   <button
                     type="button"
                     onClick={() => {

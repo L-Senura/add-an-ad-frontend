@@ -17,6 +17,8 @@ import {
   AlertTriangle,
   UserPlus,
   Trash2,
+  Cpu,
+  Sparkles,
 } from 'lucide-react';
 import {
   getAllClientTasks,
@@ -28,10 +30,11 @@ import {
   updateTaskStatus,
   updateEmployeeAvailability,
   deleteTask,
+  getStaffSuggestionForTask,
   SAMPLE_EMPLOYEES,
 } from './operationsApi';
+import StrategyPatternEngine from './StrategyPatternEngine';
 import { getStoredAuthSession } from '../client/api';
-import logoImg from '../../assets/Add-an-Ad.png';
 
 export default function OperationsCoordinationDashboard({ onBackToDashboard }) {
   const [session] = useState(() => getStoredAuthSession());
@@ -64,6 +67,40 @@ export default function OperationsCoordinationDashboard({ onBackToDashboard }) {
     coordinatorNotes: '',
   }));
   const [isSubmittingCoordination, setIsSubmittingCoordination] = useState(false);
+
+  // Strategy Pattern Recommendation State in Coordination Modal
+  const [modalStrategyKey, setModalStrategyKey] = useState('role-match');
+  const [modalStrategySuggestion, setModalStrategySuggestion] = useState(null);
+  const [isLoadingStrategySuggestion, setIsLoadingStrategySuggestion] = useState(false);
+
+  const fetchModalStrategySuggestion = async (task, stratKey) => {
+    if (!task) return;
+    setIsLoadingStrategySuggestion(true);
+    try {
+      const res = await getStaffSuggestionForTask(task.id, stratKey);
+      setModalStrategySuggestion(res);
+    } catch (e) {
+      console.warn('Failed to fetch modal strategy suggestion:', e);
+    } finally {
+      setIsLoadingStrategySuggestion(false);
+    }
+  };
+
+  const handleModalStrategyChange = (key) => {
+    setModalStrategyKey(key);
+    if (coordinatingTask) {
+      fetchModalStrategySuggestion(coordinatingTask, key);
+    }
+  };
+
+  const handleApplyStrategySuggestion = () => {
+    if (modalStrategySuggestion?.suggestedStaffId) {
+      setCoordinationForm((prev) => ({
+        ...prev,
+        employeeId: String(modalStrategySuggestion.suggestedStaffId),
+      }));
+    }
+  };
 
   // Reassignment Modal State
   const [reassigningTask, setReassigningTask] = useState(null);
@@ -176,17 +213,25 @@ export default function OperationsCoordinationDashboard({ onBackToDashboard }) {
   const displayEmployees = Array.isArray(employees) && employees.length > 0 ? employees : SAMPLE_EMPLOYEES;
 
   // Open Coordination Modal
-  const openCoordinationModal = (task) => {
+  const openCoordinationModal = (task, preselectedStaffId = null) => {
     setCoordinatingTask(task);
     const availableEmps = displayEmployees.filter((e) => e.status !== 'ON_LEAVE');
-    const defaultEmpId = availableEmps.length > 0 ? String(availableEmps[0].id) : '1';
+    const defaultEmpId = preselectedStaffId
+      ? String(preselectedStaffId)
+      : task.employeeId
+      ? String(task.employeeId)
+      : availableEmps.length > 0
+      ? String(availableEmps[0].id)
+      : '1';
 
     setCoordinationForm({
-      employeeId: task.employeeId ? String(task.employeeId) : defaultEmpId,
+      employeeId: defaultEmpId,
       deadline: task.deadline || task.clientDeadline || '',
       priority: task.priority || 'MEDIUM',
       coordinatorNotes: task.coordinatorNotes || '',
     });
+
+    fetchModalStrategySuggestion(task, modalStrategyKey);
   };
 
   // Submit Coordination
@@ -199,7 +244,7 @@ export default function OperationsCoordinationDashboard({ onBackToDashboard }) {
 
     setIsSubmittingCoordination(true);
     try {
-      const coordinatorId = session?.userId || 1;
+      const coordinatorId = session?.adminId || session?.adminID || session?.userId || session?.id || 1;
       await coordinateTask(coordinatingTask.id, {
         coordinatorId: Number(coordinatorId),
         employeeId: Number(coordinationForm.employeeId),
@@ -607,6 +652,22 @@ export default function OperationsCoordinationDashboard({ onBackToDashboard }) {
           >
             <Users className="w-4 h-4" />
             <span>Production Staff & Workloads ({employees.length})</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('strategy-engine')}
+            className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all flex items-center gap-2 cursor-pointer ${
+              activeTab === 'strategy-engine'
+                ? 'bg-[#161B26] text-[#08D9D6] border border-[#08D9D6] shadow-md ring-2 ring-[#08D9D6]/20'
+                : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-200'
+            }`}
+          >
+            <Cpu className="w-4 h-4 text-[#08D9D6]" />
+            <span>Strategy Pattern Engine</span>
+            {/* <span className="px-1.5 py-0.2 rounded-md bg-[#FF2E63] text-white text-[10px] font-black uppercase">
+              GoF
+            </span> */}
           </button>
 
           <button
@@ -1334,6 +1395,26 @@ export default function OperationsCoordinationDashboard({ onBackToDashboard }) {
             )}
           </div>
         )}
+
+        {/* ========================================================================= */}
+        {/* TAB 4: STRATEGY PATTERN ENGINE */}
+        {/* ========================================================================= */}
+        {activeTab === 'strategy-engine' && (
+          <StrategyPatternEngine
+            tasks={tasks}
+            employees={displayEmployees}
+            onApplyStaffToTask={(staffId, taskId) => {
+              const targetTask = taskId
+                ? tasks.find((t) => t.id === taskId)
+                : tasks.find((t) => !t.employeeId || t.status === 'PENDING_COORDINATION') || tasks[0];
+              if (targetTask) {
+                openCoordinationModal(targetTask, staffId);
+              } else {
+                setActiveTab('coordination');
+              }
+            }}
+          />
+        )}
       </main>
 
       {/* ========================================================================= */}
@@ -1373,7 +1454,86 @@ export default function OperationsCoordinationDashboard({ onBackToDashboard }) {
                 </div>
               </div>
 
-              {/* 1. Select Production Staff Employee */}
+              {/* 1. GoF Strategy Pattern Smart Recommendation Assistant */}
+              <div className="p-3.5 rounded-2xl bg-gradient-to-br from-[#161B26] via-[#252A34] to-[#1F2430] text-white border border-[#08D9D6]/30 shadow-md space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <span className="px-2 py-0.5 rounded-md bg-[#FF2E63] text-white text-[10px] font-black uppercase tracking-wider">
+                      GoF Strategy
+                    </span>
+                    <span className="font-bold text-xs text-[#08D9D6] flex items-center gap-1">
+                      <Cpu className="w-3.5 h-3.5" />
+                      Smart Assignment Engine
+                    </span>
+                  </div>
+                  {isLoadingStrategySuggestion ? (
+                    <RefreshCw className="w-3.5 h-3.5 text-[#08D9D6] animate-spin" />
+                  ) : (
+                    <span className="text-[10px] text-gray-400">
+                      Category: <span className="text-gray-200 font-semibold">{coordinatingTask.taskCategory || 'General'}</span>
+                    </span>
+                  )}
+                </div>
+
+                {/* Strategy Selector Pills */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                  {[
+                    { key: 'role-match', label: 'Role Match', icon: '🎯' },
+                    { key: 'least-workload', label: 'Least Load', icon: '⚖️' },
+                    { key: 'most-capacity', label: 'Most Free', icon: '🔋' },
+                    { key: 'first-available', label: 'First Avail', icon: '⏱️' },
+                  ].map((s) => (
+                    <button
+                      key={s.key}
+                      type="button"
+                      onClick={() => handleModalStrategyChange(s.key)}
+                      className={`px-2 py-1.5 rounded-xl text-[11px] font-bold transition-all cursor-pointer flex items-center justify-center gap-1 border ${
+                        modalStrategyKey === s.key
+                          ? 'bg-[#08D9D6] text-[#252A34] border-[#08D9D6] shadow-xs'
+                          : 'bg-white/10 text-gray-300 border-white/10 hover:bg-white/20'
+                      }`}
+                    >
+                      <span>{s.icon}</span>
+                      <span>{s.label}</span>
+                    </button>
+                  ))}
+                </div>
+
+                {/* Recommendation Banner */}
+                {modalStrategySuggestion?.eligible ? (
+                  <div className="p-2.5 rounded-xl bg-white/10 border border-white/15 flex items-center justify-between gap-2 text-xs">
+                    <div className="truncate">
+                      <div className="text-[10px] text-gray-400">
+                        {modalStrategySuggestion.strategy} recommends:
+                      </div>
+                      <div className="font-bold text-white flex items-center gap-1.5 truncate">
+                        <span>{modalStrategySuggestion.suggestedStaffName}</span>
+                        <span className="text-[10px] px-1.5 py-0.2 rounded-md bg-[#08D9D6]/20 text-[#08D9D6] font-semibold truncate">
+                          {modalStrategySuggestion.role}
+                        </span>
+                      </div>
+                      <div className="text-[10px] text-gray-300 mt-0.5">
+                        Workload: {modalStrategySuggestion.currentWorkload}/{modalStrategySuggestion.maxWorkload} • Free: +{modalStrategySuggestion.remainingCapacity} slots
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleApplyStrategySuggestion}
+                      className="px-2.5 py-1.5 rounded-xl bg-[#08D9D6] hover:bg-[#07c2bf] text-[#252A34] font-black text-xs shrink-0 flex items-center gap-1 shadow-xs cursor-pointer transition-all"
+                    >
+                      <Sparkles className="w-3.5 h-3.5 text-[#252A34]" />
+                      <span>Apply</span>
+                    </button>
+                  </div>
+                ) : (
+                  <div className="text-[11px] text-gray-400 p-2 rounded-xl bg-white/5">
+                    {modalStrategySuggestion?.message || 'Select an assignment strategy above to get an algorithm-driven recommendation.'}
+                  </div>
+                )}
+              </div>
+
+              {/* 2. Select Production Staff Employee */}
               <div>
                 <div className="flex items-center justify-between mb-1.5">
                   <label className="block font-bold text-gray-700">
@@ -1417,7 +1577,7 @@ export default function OperationsCoordinationDashboard({ onBackToDashboard }) {
                           </div>
                           <div className="text-[11px] text-gray-500 flex items-center gap-2 mt-0.5">
                             <span>📧 {selectedEmp.email}</span>
-                            <span>📞 {selectedEmp.phone}</span>
+                            <span>📞 {selectedEmp.contactNumber || selectedEmp.phone || 'N/A'}</span>
                           </div>
                         </div>
                       </div>

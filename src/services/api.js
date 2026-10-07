@@ -38,12 +38,19 @@ export const BACKEND_API_ROUTES = {
   OPERATIONS: '/api/operations',
   CLIENT_TASKS: '/api/client_tasks',
   COORDINATOR_TASKS: '/api/coordinator_tasks',
+  EMPLOYEE_TASKS: '/api/employee_tasks',
   // 7. Reviews Controller (/api/reviews)
   REVIEWS: '/api/reviews',
   CLIENT_REVIEWS: '/api/reviews/client-to-admin',
   ADMIN_REVIEWS: '/api/reviews/admin/all',
 
-  // 8. Public Marketplace & Homepage
+  // 8. Notifications Controller & Observer Pattern (/api/notifications)
+  NOTIFICATIONS: '/api/notifications',
+
+  // 9. Operations Staff Suggestion Strategy Engine (/api/staff-suggestion)
+  STAFF_SUGGESTION: '/api/staff-suggestion',
+
+  // 10. Public Marketplace & Homepage
   HOME: '/',
   COMPANY_DETAILS: '/company/:id',
 };
@@ -53,6 +60,7 @@ export * from '../pages/client/api';
 export * from '../pages/campaign/campaignApi';
 export * from '../pages/communication/communicationApi';
 export * from '../pages/communication/reviewApi';
+export * from '../pages/communication/notificationApi';
 export * from '../pages/finance/financeApi';
 export * from '../pages/marketing/marketingApi';
 export * from '../pages/operations/operationsApi';

@@ -47,6 +47,7 @@ import { getInvoicesByClientId } from '../finance/financeApi';
 import { getClientReviewSummary } from '../communication/reviewApi';
 import ClientChatInterface from '../communication/clientChatInterface';
 import ReviewInterface from '../communication/reviewInterface';
+import NotificationBell from '../communication/NotificationBell';
 import ClientInvoicesSection from '../finance/ClientInvoicesSection';
 import ClientMarketingSection from '../marketing/ClientMarketingSection';
 import ClientTaskSubmissionSection from '../operations/ClientTaskSubmissionSection';
@@ -821,9 +822,24 @@ export default function ClientHome({ onPostAdvertisement, onLogout }) {
             </div>
           </div>
 
-          {/* Right: "Ask Now" Interactive Button */}
-          {/* Arrow Note: By clicking 'Ask Now' user can see the chat interface which interactive popup menu comes as chat interface */}
-          <div>
+          {/* Right: "Ask Now" & Observer Notifications Interactive Buttons */}
+          <div className="flex items-center gap-3">
+            {/* <div className="bg-[#252A34] p-1.5 rounded-2xl border border-[#08D9D6]/30 shadow-sm flex items-center justify-center">
+              <NotificationBell
+                role="CLIENT"
+                clientId={client?.clientID || client?.clientId || 1}
+                onNavigateToItem={(notif) => {
+                  if (notif?.notificationType === 'CHAT_MESSAGE' || notif?.notificationType === 'CHAT_REPLY') {
+                    setActiveModal('chat');
+                  } else if (notif?.notificationType === 'PUBLIC_REVIEW') {
+                    setActiveModal('public_visitor_reviews');
+                  } else if (notif?.notificationType === 'CLIENT_REVIEW') {
+                    setActiveModal('review');
+                  }
+                }}
+              />
+            </div> */}
+
             <button
               type="button"
               onClick={() => setActiveModal('chat')}
@@ -1586,7 +1602,7 @@ export default function ClientHome({ onPostAdvertisement, onLogout }) {
 
             {/* Modal Body: ClientTaskSubmissionSection */}
             <div className="p-4 sm:p-6 overflow-y-auto flex-1">
-              <ClientTaskSubmissionSection clientId={client?.clientID || 1} clientName={companyTitle} />
+              <ClientTaskSubmissionSection clientId={client?.clientID || 1} clientName={client?.companyName || 'Your Agency'} />
             </div>
           </div>
         </div>

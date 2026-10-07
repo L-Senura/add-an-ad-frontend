@@ -15,6 +15,7 @@ import {
   ArrowLeft,
   RefreshCw,
   Star,
+  Layers,
 } from 'lucide-react';
 import {
   sendAdminMessageToClient,
@@ -25,6 +26,7 @@ import {
 } from './communicationApi';
 import { getAllClients, getStoredAuthSession } from '../client/api';
 import AdminReviewDesk from './AdminReviewDesk';
+import ObserverEventMonitor from './ObserverEventMonitor';
 import logoImg from '../../assets/Add-an-Ad.png';
 
 // Sample client list for offline/demo reliability
@@ -316,9 +318,9 @@ export default function AdminChatDashboard({ onBackToDashboard }) {
         )}
       </header>
 
-      {/* View Switcher: Live Chat vs Client Reviews */}
-      <div className="max-w-6xl mx-auto mb-6 flex items-center justify-between">
-        <div className="inline-flex p-1.5 rounded-2xl bg-white border border-gray-200 shadow-xs gap-1.5">
+      {/* View Switcher: Live Chat vs Client Reviews vs Observer Notifications */}
+      <div className="max-w-6xl mx-auto mb-6 flex flex-wrap items-center justify-between gap-3">
+        <div className="inline-flex p-1.5 rounded-2xl bg-white border border-gray-200 shadow-xs gap-1.5 flex-wrap">
           <button
             type="button"
             onClick={() => setActiveView('chat')}
@@ -343,6 +345,18 @@ export default function AdminChatDashboard({ onBackToDashboard }) {
             <Star className="w-4 h-4 fill-amber-400 text-amber-400" />
             Client Reviews & Ratings
           </button>
+          <button
+            type="button"
+            onClick={() => setActiveView('observers')}
+            className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all flex items-center gap-2 cursor-pointer ${
+              activeView === 'observers'
+                ? 'bg-[#08D9D6] text-[#161B26] shadow-xs'
+                : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            <Layers className="w-4 h-4" />
+            Observer Events & Notifications
+          </button>
         </div>
       </div>
 
@@ -350,6 +364,8 @@ export default function AdminChatDashboard({ onBackToDashboard }) {
       <main className="max-w-6xl mx-auto">
         {activeView === 'reviews' ? (
           <AdminReviewDesk adminSession={adminSession} />
+        ) : activeView === 'observers' ? (
+          <ObserverEventMonitor adminSession={adminSession} />
         ) : (
           <div
             className="rounded-[32px] bg-white border border-gray-200 shadow-xl overflow-hidden grid grid-cols-1 lg:grid-cols-12 min-h-[640px]"

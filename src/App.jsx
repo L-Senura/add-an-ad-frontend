@@ -6,6 +6,7 @@ import ClientHome from './pages/client/ClientHome';
 import CampaignDetails from './pages/campaign/CampaignDetails';
 import AdminClientApproval from './pages/client/AdminClientApproval';
 import AdminChatDashboard from './pages/communication/adminChatDashboard';
+import NotificationBell from './pages/communication/NotificationBell';
 import InvoiceManagement from './pages/finance/InvoiceManagement';
 import MarketingDashboard from './pages/marketing/MarketingDashboard';
 import OperationsCoordinationDashboard from './pages/operations/OperationsCoordinationDashboard';
@@ -271,7 +272,21 @@ function App() {
             )}
 
             {/* Right: Authenticated User Badge & Logout Action */}
-            <div className="flex items-center gap-3 text-xs">
+            <div className="flex items-center gap-2.5 sm:gap-3 text-xs">
+              {/* Notification Bell powered by Observer Design Pattern */}
+              <NotificationBell
+                role={isAdmin ? 'ADMIN' : 'CLIENT'}
+                clientId={session?.clientId || 1}
+                adminId={session?.adminId || 1}
+                onNavigateToItem={(item) => {
+                  if (isAdmin) {
+                    navigate(BACKEND_API_ROUTES.ADMIN_CHAT);
+                  } else {
+                    navigate(BACKEND_API_ROUTES.CLIENT_HOME);
+                  }
+                }}
+              />
+
               <div className="hidden sm:flex items-center gap-1.5 text-white/80">
                 {isAdmin ? (
                   <Shield className="w-4 h-4 text-[#FF2E63]" />

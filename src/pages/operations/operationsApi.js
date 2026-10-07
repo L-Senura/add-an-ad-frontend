@@ -303,7 +303,11 @@ export async function submitClientTask(taskData) {
       method: 'POST',
       body: JSON.stringify(payload),
     });
-  } catch {
+  } catch (err) {
+    if (!err.isNetworkError) {
+      throw err;
+    }
+
     const newTask = {
       id: Date.now(),
       ...payload,
@@ -387,10 +391,31 @@ export async function updateClientTask(taskId, taskData) {
   };
 
   try {
-    return await request(`/api/client_tasks/${taskId}`, {
-      method: 'PUT',
-      body: JSON.stringify(payload),
-    });
+    let result;
+    try {
+      result = await request(`/api/client_tasks/${taskId}`, {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      });
+    } catch (primaryErr) {
+      if (primaryErr?.status === 404 || primaryErr?.status === 405 || primaryErr?.status === 500) {
+        // Retry alternative update endpoint if primary hit routing collision
+        result = await request(`/api/client_tasks/${taskId}/update`, {
+          method: 'PUT',
+          body: JSON.stringify(payload),
+        });
+      } else {
+        throw primaryErr;
+      }
+    }
+
+    // Keep in-memory cache synchronized with successful server response
+    const idx = demoTasks.findIndex((t) => Number(t.id) === Number(taskId));
+    if (idx !== -1) {
+      demoTasks[idx] = { ...demoTasks[idx], ...(result || payload) };
+      saveStoredTasks(demoTasks);
+    }
+    return result;
   } catch (err) {
     if (!err.isNetworkError) {
       throw err;
@@ -408,7 +433,7 @@ export async function updateClientTask(taskId, taskData) {
         `Cannot edit task: It has already been assigned to an employee (${task.employeeName || 'ID: ' + task.employeeId}).`
       );
     }
-    const status = String(task.status || '').toUpperCase();
+    const status = String(task.status || '').toUpperCase().trim();
     if (
       status === 'ASSIGNED' ||
       status === 'IN PROGRESS' ||
@@ -441,12 +466,19 @@ export async function cancelClientTask(taskId) {
       return await request(`/api/client_tasks/${taskId}`, {
         method: 'DELETE',
       });
-    } catch {
+    } catch (e1) {
+      if (!e1.isNetworkError && e1.status !== 404 && e1.status !== 405) {
+        throw e1;
+      }
       return await request(`/api/client_tasks/${taskId}/cancel`, {
         method: 'DELETE',
       });
     }
-  } catch {
+  } catch (err) {
+    if (!err.isNetworkError) {
+      throw err;
+    }
+
     const taskIndex = demoTasks.findIndex((t) => Number(t.id) === Number(taskId));
     if (taskIndex === -1) throw new Error(`Task with ID ${taskId} not found.`);
     const existingTask = demoTasks[taskIndex];
@@ -490,10 +522,16 @@ export async function deleteTask(taskId) {
       return await request(`/api/coordinator_tasks/${taskId}`, {
         method: 'DELETE',
       });
-    } catch {
+    } catch (e1) {
+      if (!e1.isNetworkError && e1.status !== 404 && e1.status !== 405) {
+        throw e1;
+      }
       return await cancelClientTask(taskId);
     }
-  } catch {
+  } catch (err) {
+    if (!err.isNetworkError) {
+      throw err;
+    }
     return cancelClientTask(taskId);
   }
 }
@@ -546,7 +584,11 @@ export async function addEmployee(employeeData) {
       method: 'POST',
       body: JSON.stringify(payload),
     });
-  } catch {
+  } catch (err) {
+    if (!err.isNetworkError) {
+      throw err;
+    }
+
     const newEmp = {
       id: Date.now(),
       ...payload,
@@ -632,7 +674,11 @@ export async function coordinateTask(taskId, coordinationData) {
       method: 'PUT',
       body: JSON.stringify(payload),
     });
-  } catch {
+  } catch (err) {
+    if (!err.isNetworkError) {
+      throw err;
+    }
+
     const task = demoTasks.find((t) => Number(t.id) === Number(taskId));
     if (!task) throw new Error(`Task with ID ${taskId} not found.`);
 
@@ -690,7 +736,10 @@ export async function reassignTask(taskId, newEmployeeId, reason = '') {
         method: 'PUT',
       }
     );
-  } catch {
+  } catch (err) {
+    if (!err.isNetworkError) {
+      throw err;
+    }
     const task = demoTasks.find((t) => Number(t.id) === Number(taskId));
     if (!task) throw new Error(`Task with ID ${taskId} not found.`);
 
@@ -863,7 +912,11 @@ export async function updateTaskStatus(employeeId, taskId, status) {
       `/api/employee_tasks/${employeeId}/${taskId}/status?status=${encodeURIComponent(status)}`,
       { method: 'PUT' }
     );
-  } catch {
+  } catch (err) {
+    if (!err.isNetworkError) {
+      throw err;
+    }
+
     const task = demoTasks.find((t) => Number(t.id) === Number(taskId));
     if (!task) throw new Error(`Task with ID ${taskId} not found.`);
 
@@ -914,12 +967,206 @@ export async function updateEmployeeAvailability(employeeId, status) {
       `/api/employee_tasks/${employeeId}/availability?status=${encodeURIComponent(status)}`,
       { method: 'PUT' }
     );
-  } catch {
+  } catch (err) {
+    if (!err.isNetworkError) {
+      throw err;
+    }
     const emp = demoEmployees.find((e) => Number(e.id) === Number(employeeId));
     if (!emp) throw new Error(`Employee with ID ${employeeId} not found.`);
 
     emp.status = status.toUpperCase();
     saveStoredEmployees(demoEmployees);
     return emp;
+  }
+}
+
+// =========================================================================
+// 4. STRATEGY PATTERN - STAFF ASSIGNMENT SUGGESTION ENGINE (/api/staff-suggestion)
+// =========================================================================
+
+export const DEFAULT_STRATEGIES = [
+  {
+    key: 'role-match',
+    name: 'Role Match',
+    requiresCategory: true,
+    description: 'Matches task category keywords against employee roles, falling back to least busy staff.',
+    icon: '🎯',
+  },
+  {
+    key: 'least-workload',
+    name: 'Least Workload',
+    requiresCategory: false,
+    description: 'Selects the eligible employee with the lowest active task count to balance team workload.',
+    icon: '⚖️',
+  },
+  {
+    key: 'most-capacity',
+    name: 'Most Remaining Capacity',
+    requiresCategory: false,
+    description: 'Selects the employee with the most remaining capacity (maxWorkload - currentWorkload).',
+    icon: '🔋',
+  },
+  {
+    key: 'first-available',
+    name: 'First Available',
+    requiresCategory: false,
+    description: 'Selects the earliest registered eligible staff member by ID (deterministic order).',
+    icon: '⏱️',
+  },
+];
+
+export const CATEGORY_ROLE_KEYWORDS = {
+  'graphic design': ['graphic', 'design', 'visual', 'creative', '3d'],
+  'video production': ['video', 'motion', 'animat', 'editor', 'producer'],
+  'copywriting': ['writer', 'copy', 'content', 'strategist'],
+  'web development': ['web', 'developer', 'engineer', 'front-end', 'landing'],
+  'social media': ['social', 'influencer', 'reels', 'producer'],
+};
+
+/**
+ * Local simulation of StaffAssigner & Strategies (when offline/backend unreachable)
+ */
+export function simulateStaffSuggestion(strategyKey, category, customEmployees = null) {
+  const staffList = customEmployees || demoEmployees;
+  // Eligible: !ON_LEAVE and currentWorkload < maxWorkload
+  const eligible = staffList.filter(
+    (s) =>
+      String(s.status).toUpperCase() !== 'ON_LEAVE' &&
+      (s.currentWorkload || 0) < (s.maxWorkload || 5)
+  );
+
+  if (eligible.length === 0) {
+    return {
+      strategyKey,
+      strategy: DEFAULT_STRATEGIES.find((s) => s.key === strategyKey)?.name || strategyKey,
+      eligible: false,
+      message: 'No eligible staff available (all staff either at max capacity or on leave).',
+    };
+  }
+
+  let selected = null;
+  const strat = DEFAULT_STRATEGIES.find((s) => s.key === strategyKey);
+
+  if (strategyKey === 'least-workload') {
+    selected = [...eligible].sort(
+      (a, b) => (a.currentWorkload || 0) - (b.currentWorkload || 0)
+    )[0];
+  } else if (strategyKey === 'most-capacity') {
+    selected = [...eligible].sort(
+      (a, b) =>
+        ((b.maxWorkload || 5) - (b.currentWorkload || 0)) -
+        ((a.maxWorkload || 5) - (a.currentWorkload || 0))
+    )[0];
+  } else if (strategyKey === 'first-available') {
+    selected = [...eligible].sort((a, b) => Number(a.id) - Number(b.id))[0];
+  } else if (strategyKey === 'role-match') {
+    const catLower = (category || '').trim().toLowerCase();
+    const keywords = CATEGORY_ROLE_KEYWORDS[catLower] || [];
+    const matched = eligible.filter((s) => {
+      const roleLower = (s.role || '').toLowerCase();
+      return keywords.some((kw) => roleLower.includes(kw));
+    });
+
+    if (matched.length > 0) {
+      selected = [...matched].sort(
+        (a, b) => (a.currentWorkload || 0) - (b.currentWorkload || 0)
+      )[0];
+    } else {
+      // Fallback to least busy
+      selected = [...eligible].sort(
+        (a, b) => (a.currentWorkload || 0) - (b.currentWorkload || 0)
+      )[0];
+    }
+  } else {
+    selected = eligible[0];
+  }
+
+  return {
+    strategyKey,
+    strategy: strat?.name || strategyKey,
+    queriedCategory: category || null,
+    suggestedStaffId: selected.id,
+    suggestedStaffName: selected.name,
+    role: selected.role,
+    email: selected.email,
+    contactNumber: selected.contactNumber || selected.phone,
+    currentWorkload: selected.currentWorkload || 0,
+    maxWorkload: selected.maxWorkload || 5,
+    remainingCapacity: Math.max(
+      0,
+      (selected.maxWorkload || 5) - (selected.currentWorkload || 0)
+    ),
+    status: selected.status || 'AVAILABLE',
+    eligible: true,
+  };
+}
+
+/**
+ * Retrieve metadata for all registered strategies.
+ * GET /api/staff-suggestion/strategies
+ */
+export async function getAvailableStrategies() {
+  try {
+    const data = await request('/api/staff-suggestion/strategies');
+    if (Array.isArray(data) && data.length > 0) return data;
+  } catch {
+    // fallback
+  }
+  return DEFAULT_STRATEGIES;
+}
+
+/**
+ * Request staff suggestion using a selected strategy.
+ * GET /api/staff-suggestion?strategy={key}&category={cat}
+ */
+export async function getStaffSuggestion(strategy = 'role-match', category = '') {
+  const query = new URLSearchParams();
+  if (strategy) query.append('strategy', strategy);
+  if (category) query.append('category', category);
+
+  try {
+    return await request(`/api/staff-suggestion?${query.toString()}`);
+  } catch {
+    return simulateStaffSuggestion(strategy, category);
+  }
+}
+
+/**
+ * Compare all strategies side-by-side for a category.
+ * GET /api/staff-suggestion/compare?category={cat}
+ */
+export async function compareStaffStrategies(category = '') {
+  const query = category ? `?category=${encodeURIComponent(category)}` : '';
+  try {
+    const data = await request(`/api/staff-suggestion/compare${query}`);
+    if (Array.isArray(data) && data.length > 0) return data;
+  } catch {
+    // fallback
+  }
+
+  // Simulate compare for all 4 strategies
+  return DEFAULT_STRATEGIES.map((s) => simulateStaffSuggestion(s.key, category));
+}
+
+/**
+ * Suggest a staff member for a specific existing task by ID.
+ * GET /api/staff-suggestion/task/{taskId}?strategy={strategy}
+ */
+export async function getStaffSuggestionForTask(taskId, strategy = 'role-match') {
+  try {
+    return await request(
+      `/api/staff-suggestion/task/${taskId}?strategy=${encodeURIComponent(strategy)}`
+    );
+  } catch {
+    const task = demoTasks.find((t) => Number(t.id) === Number(taskId));
+    const cat = task?.taskCategory || '';
+    const res = simulateStaffSuggestion(strategy, cat);
+    return {
+      ...res,
+      taskId: task?.id || taskId,
+      taskTitle: task?.taskTitle || 'Task',
+      taskCategory: cat,
+      priority: task?.priority || 'MEDIUM',
+    };
   }
 }
